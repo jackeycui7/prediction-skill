@@ -229,8 +229,8 @@ pub fn run(server_url: &str) -> Result<()> {
     };
 
     let data = status.get("data").cloned().unwrap_or(json!({}));
-    let submissions_today = data
-        .get("valid_submissions_today")
+    let total_predictions = data
+        .get("total_predictions")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     let balance_raw = data.get("balance").and_then(|v| v.as_str()).unwrap_or("0");
@@ -253,22 +253,22 @@ pub fn run(server_url: &str) -> Result<()> {
     };
 
     log_info!(
-        "preflight: READY — {} open markets, {} submissions today, {} chips",
+        "preflight: READY — {} open markets, {} total predictions, {} chips",
         open_markets,
-        submissions_today,
+        total_predictions,
         balance
     );
 
     Output::success(
         format!(
-            "Ready. {} open markets. {} submissions today. Balance: {} chips.",
-            open_markets, submissions_today, balance
+            "Ready. {} open markets. {} total predictions. Balance: {} chips.",
+            open_markets, total_predictions, balance
         ),
         json!({
             "status": "ready",
             "address": address,
             "open_markets": open_markets,
-            "submissions_today": submissions_today,
+            "total_predictions": total_predictions,
             "balance": balance,
         }),
         Internal {

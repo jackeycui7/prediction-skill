@@ -46,8 +46,8 @@ pub fn run(server_url: &str) -> Result<()> {
 
     let data = resp.get("data").cloned().unwrap_or(json!({}));
 
-    let submissions = data
-        .get("valid_submissions_today")
+    let total_predictions = data
+        .get("total_predictions")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     let balance_raw = data
@@ -61,8 +61,8 @@ pub fn run(server_url: &str) -> Result<()> {
         .unwrap_or("none");
 
     log_info!(
-        "status: submissions_today={}, balance={}, persona={}",
-        submissions,
+        "status: total_predictions={}, balance={}, persona={}",
+        total_predictions,
         balance,
         persona
     );
@@ -70,8 +70,8 @@ pub fn run(server_url: &str) -> Result<()> {
 
     Output::success(
         format!(
-            "Agent status: {} submissions today, {} chips balance, persona: {}.",
-            submissions, balance, persona
+            "Agent status: {} total predictions, {} chips balance, persona: {}.",
+            total_predictions, balance, persona
         ),
         data,
         Internal {

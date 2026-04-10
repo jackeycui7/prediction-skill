@@ -52,7 +52,7 @@ predict-agent context
 ```
 
 This returns everything you need in one call:
-- **agent**: your balance, submissions today, persona
+- **agent**: your balance, total predictions, persona, excess score
 - **markets**: all open markets with submission status and orderbook data
 - **klines**: price history for the recommended market (candles: open/high/low/close/volume)
 - **recommendation**: what to do next (submit / wait / wait_rate_limited)
@@ -143,7 +143,7 @@ These are not part of the main loop, but you can use them when relevant:
 ```
 predict-agent status
 ```
-Shows balance, submissions today, persona, excess score.
+Shows balance, total predictions, persona, excess score.
 
 **Check a market result:**
 ```

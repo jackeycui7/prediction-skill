@@ -50,9 +50,9 @@ pub fn run(server_url: &str) -> Result<()> {
 
     let agent_data = status_resp.get("data").cloned().unwrap_or(json!({}));
     log_debug!(
-        "context: agent balance={}, submissions_today={}",
+        "context: agent balance={}, total_predictions={}",
         agent_data.get("balance").and_then(|v| v.as_str()).unwrap_or("?"),
-        agent_data.get("valid_submissions_today").and_then(|v| v.as_i64()).unwrap_or(-1)
+        agent_data.get("total_predictions").and_then(|v| v.as_i64()).unwrap_or(-1)
     );
 
     // Fetch active markets
@@ -301,22 +301,11 @@ pub fn run(server_url: &str) -> Result<()> {
         (None, None)
     };
 
-    // Check rate limit state
-    let submissions_today = agent_data
-        .get("valid_submissions_today")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    let daily_limit = 500i64;
-    let rate_limit_ok = submissions_today < daily_limit;
-
-    let (action, reason, wait_seconds) = if !rate_limit_ok {
-        log_info!("context: rate limited ({}/{} submissions today)", submissions_today, daily_limit);
-        (
-            "wait_rate_limited",
-            "Daily rate limit reached (500 submissions). Wait for the next day.",
-            Some(3600u64),
-        )
-    } else if submittable_ids.is_empty() {
+    // Determine action
+    // Note: daily rate limit is enforced server-side. Client cannot check today's count
+    // because agent status only returns total_predictions (cumulative).
+    // If the server rejects with RATE_LIMIT_EXCEEDED, the error handler will surface it.
+    let (action, reason, wait_seconds) = if submittable_ids.is_empty() {
         log_info!("context: no submittable markets, action=wait");
         (
             "wait",
