@@ -46,7 +46,7 @@ pub fn run(server_url: &str) -> Result<()> {
                 }),
                 Internal {
                     next_action: "configure_wallet".into(),
-                    next_command: Some("awp-wallet init && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)".into()),
+                    next_command: Some("if ! awp-wallet receive 2>/dev/null; then awp-wallet init; fi && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)".into()),
                     ..Default::default()
                 },
             )

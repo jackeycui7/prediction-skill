@@ -57,11 +57,14 @@ cd awp-wallet && npm install && npm install -g . && cd ..
 
 ### Wallet init + unlock (if WALLET_NOT_CONFIGURED)
 
-If no wallet exists yet, initialize one:
+First check if a wallet already exists:
 
 ```
-awp-wallet init
+awp-wallet receive
 ```
+
+- If it returns an address: wallet exists. **Do NOT run `awp-wallet init` again** — that would create a new wallet and lose access to the old one.
+- If it fails: no wallet yet. Run `awp-wallet init` to create one.
 
 Then unlock and capture the session token:
 
