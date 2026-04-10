@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::client::ApiClient;
 use crate::output::{Internal, Output};
+use crate::{log_debug, log_error, log_info};
 
 /// Round a decimal chip string to 2 decimal places for display.
 fn format_chips(s: &str) -> String {
@@ -14,17 +15,24 @@ fn format_chips(s: &str) -> String {
 }
 
 pub fn run(server_url: &str) -> Result<()> {
+    log_info!("status: fetching agent status from {}", server_url);
     let client = ApiClient::new(server_url.to_string())?;
 
     let resp = match client.get_auth("/api/v1/agents/me/status") {
         Ok(v) => v,
         Err(e) => {
-            Output::error(
+            log_error!("status: failed to fetch: {}", e);
+            Output::error_with_debug(
                 format!("Failed to fetch status: {e}"),
                 "STATUS_FAILED",
                 "network",
                 true,
                 "Check coordinator connectivity.",
+                json!({
+                    "server_url": server_url,
+                    "error_detail": format!("{e}"),
+                    "error_chain": format!("{e:#}"),
+                }),
                 Internal {
                     next_action: "retry".into(),
                     next_command: Some("predict-agent status".into()),
@@ -51,6 +59,14 @@ pub fn run(server_url: &str) -> Result<()> {
         .get("persona")
         .and_then(|v| v.as_str())
         .unwrap_or("none");
+
+    log_info!(
+        "status: submissions_today={}, balance={}, persona={}",
+        submissions,
+        balance,
+        persona
+    );
+    log_debug!("status: full response data: {}", serde_json::to_string(&data).unwrap_or_default());
 
     Output::success(
         format!(

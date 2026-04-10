@@ -1,12 +1,14 @@
 /// submit — submit a prediction to the coordinator.
 ///
 /// Builds and signs the request, then POSTs to /api/v1/predictions.
+/// Logs full request/response details for debugging.
 
 use anyhow::Result;
 use serde_json::json;
 
 use crate::client::ApiClient;
 use crate::output::{Internal, Output};
+use crate::{log_debug, log_error, log_info, log_warn};
 
 pub struct SubmitArgs {
     pub market: String,
@@ -18,14 +20,29 @@ pub struct SubmitArgs {
 }
 
 pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
+    log_info!(
+        "submit: market={}, prediction={}, tickets={}, limit_price={:?}, reasoning_len={}, dry_run={}",
+        args.market,
+        args.prediction,
+        args.tickets,
+        args.limit_price,
+        args.reasoning.len(),
+        args.dry_run
+    );
+
     // Validate direction
     if args.prediction != "up" && args.prediction != "down" {
-        Output::error(
+        log_error!("submit: invalid direction '{}' (must be 'up' or 'down')", args.prediction);
+        Output::error_with_debug(
             "Prediction must be 'up' or 'down'.",
             "INVALID_DIRECTION",
             "validation",
             false,
             "Use --prediction up or --prediction down.",
+            json!({
+                "provided_prediction": args.prediction,
+                "valid_values": ["up", "down"],
+            }),
             Internal {
                 next_action: "fix_command".into(),
                 ..Default::default()
@@ -36,6 +53,7 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
     }
 
     if args.tickets == 0 {
+        log_error!("submit: tickets must be > 0");
         Output::error(
             "Tickets must be greater than 0.",
             "INVALID_TICKETS",
@@ -53,12 +71,17 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
 
     if let Some(lp) = args.limit_price {
         if !(0.01..=0.99).contains(&lp) {
-            Output::error(
+            log_error!("submit: invalid limit_price {} (must be 0.01-0.99)", lp);
+            Output::error_with_debug(
                 format!("limit-price must be between 0.01 and 0.99, got {lp}"),
                 "INVALID_LIMIT_PRICE",
                 "validation",
                 false,
                 "Use --limit-price 0.01 to 0.99.",
+                json!({
+                    "provided_limit_price": lp,
+                    "valid_range": "0.01-0.99",
+                }),
                 Internal {
                     next_action: "fix_command".into(),
                     ..Default::default()
@@ -67,6 +90,32 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
             .print();
             return Ok(());
         }
+    }
+
+    // Validate reasoning length client-side
+    let reasoning_len = args.reasoning.len();
+    if reasoning_len < 80 {
+        log_error!("submit: reasoning too short ({} chars, minimum 80)", reasoning_len);
+        Output::error_with_debug(
+            format!("Reasoning too short: {} characters (minimum 80).", reasoning_len),
+            "REASONING_TOO_SHORT",
+            "validation",
+            false,
+            "Expand your reasoning to at least 80 characters with at least 2 sentences.",
+            json!({
+                "reasoning_length": reasoning_len,
+                "minimum_length": 80,
+            }),
+            Internal {
+                next_action: "fix_command".into(),
+                ..Default::default()
+            },
+        )
+        .print();
+        return Ok(());
+    }
+    if reasoning_len > 2000 {
+        log_warn!("submit: reasoning is {} chars (max 2000), server may reject", reasoning_len);
     }
 
     let mut body = json!({
@@ -81,6 +130,7 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
     }
 
     if args.dry_run {
+        log_info!("submit: dry-run mode, not sending to server");
         Output::success(
             format!(
                 "[dry-run] Would submit {} prediction for market {} with {} tickets.",
@@ -113,24 +163,49 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
         return Ok(());
     }
 
+    log_debug!("submit: creating API client...");
     let client = ApiClient::new(server_url.to_string())?;
 
+    log_info!("submit: sending prediction to server...");
     let resp = match client.post_auth("/api/v1/predictions", &body) {
-        Ok(v) => v,
+        Ok(v) => {
+            log_info!("submit: prediction accepted by server");
+            v
+        }
         Err(e) => {
             let err_str = e.to_string();
+            log_error!("submit: server rejected prediction: {}", err_str);
             // Parse error details from server response if present
-            let (code, category, retryable, suggestion) =
-                parse_server_error(&err_str);
-
-            Output::error(
-                format!("Submission failed: {}", extract_message(&err_str)),
+            let (code, category, retryable, suggestion) = parse_server_error(&err_str);
+            log_debug!(
+                "submit: parsed error — code={}, category={}, retryable={}, suggestion={}",
                 code,
                 category,
                 retryable,
-                suggestion,
+                suggestion
+            );
+
+            Output::error_with_debug(
+                format!("Submission failed: {}", extract_message(&err_str)),
+                &code,
+                &category,
+                retryable,
+                &suggestion,
+                json!({
+                    "raw_error": err_str,
+                    "market_id": args.market,
+                    "prediction": args.prediction,
+                    "tickets": args.tickets,
+                    "reasoning_length": args.reasoning.len(),
+                    "limit_price": args.limit_price,
+                    "server_url": server_url,
+                }),
                 Internal {
-                    next_action: if retryable { "retry".into() } else { "fix_command".into() },
+                    next_action: if retryable {
+                        "retry".into()
+                    } else {
+                        "fix_command".into()
+                    },
                     wait_seconds: if retryable { Some(30) } else { None },
                     next_command: Some("predict-agent context".into()),
                     ..Default::default()
@@ -144,11 +219,19 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
     let data = resp.get("data").cloned().unwrap_or(json!({}));
 
     // Extract key fields for user_message
-    let direction = data.get("direction").and_then(|v| v.as_str()).unwrap_or(&args.prediction);
-    let filled = data.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
+    let direction = data
+        .get("direction")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&args.prediction);
+    let filled = data
+        .get("tickets_filled")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     let total = args.tickets as i64;
-    let status = data.get("order_status").and_then(|v| v.as_str()).unwrap_or("open");
-    // payout_if_correct is an integer in the response
+    let status = data
+        .get("order_status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("open");
     let payout = data
         .get("payout_if_correct")
         .and_then(|v| v.as_i64())
@@ -156,6 +239,15 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
         .unwrap_or_else(|| "0".to_string());
 
     let market_id_short = args.market.clone();
+
+    log_info!(
+        "submit: result — direction={}, status={}, filled={}/{}, payout_if_correct={}",
+        direction,
+        status,
+        filled,
+        total,
+        payout
+    );
 
     let user_msg = match status {
         "filled" => format!(
@@ -199,7 +291,11 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
 fn extract_message(err: &str) -> String {
     // Try to parse as JSON first (server error response)
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(err) {
-        if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()) {
+        if let Some(msg) = v
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+        {
             return msg.to_string();
         }
         if let Some(msg) = v.get("message").and_then(|m| m.as_str()) {
@@ -210,7 +306,11 @@ fn extract_message(err: &str) -> String {
     if let Some(json_start) = err.find('{') {
         let json_part = &err[json_start..];
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_part) {
-            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()) {
+            if let Some(msg) = v
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+            {
                 return msg.to_string();
             }
         }
@@ -254,11 +354,42 @@ fn parse_server_error(err: &str) -> (String, String, bool, String) {
 
     // Defaults based on common patterns
     if err.contains("RATE_LIMIT") || err.contains("429") {
-        return ("RATE_LIMIT_EXCEEDED".into(), "rate_limit".into(), true, "Wait and retry.".into());
+        return (
+            "RATE_LIMIT_EXCEEDED".into(),
+            "rate_limit".into(),
+            true,
+            "Wait and retry.".into(),
+        );
     }
     if err.contains("MARKET_CLOSED") {
-        return ("MARKET_CLOSED".into(), "validation".into(), false, "Choose an open market.".into());
+        return (
+            "MARKET_CLOSED".into(),
+            "validation".into(),
+            false,
+            "Choose an open market.".into(),
+        );
+    }
+    if err.contains("INSUFFICIENT_BALANCE") || err.contains("insufficient") {
+        return (
+            "INSUFFICIENT_BALANCE".into(),
+            "validation".into(),
+            false,
+            "Reduce --tickets or wait for the next chip feed (every 4 hours).".into(),
+        );
+    }
+    if err.contains("REASONING_DUPLICATE") || err.contains("duplicate") {
+        return (
+            "REASONING_DUPLICATE".into(),
+            "validation".into(),
+            false,
+            "Write completely new analysis. Do not reuse or rephrase previous reasoning.".into(),
+        );
     }
 
-    ("SUBMISSION_FAILED".into(), "unknown".into(), false, "Check the error details and retry.".into())
+    (
+        "SUBMISSION_FAILED".into(),
+        "unknown".into(),
+        false,
+        "Check the error details and retry.".into(),
+    )
 }

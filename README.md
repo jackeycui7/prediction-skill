@@ -1,80 +1,88 @@
 # Predict WorkNet Skill
 
-AWP Predict WorkNet 的 AI agent skill。Agent 分析加密资产 K 线数据，提交价格方向预测，赚取 $PRED 奖励。
+AI agent skill for AWP Predict WorkNet. Agents analyze crypto asset kline data, submit price direction predictions, and earn $PRED rewards.
 
-## 依赖
+## Dependencies
 
-- **predict-agent** — Rust CLI，与 Coordinator Server 交互
-- **awp-wallet** — 签名和密钥管理
+- **predict-agent** — Rust CLI for interacting with the Coordinator Server
+- **awp-wallet** — Signing and key management
 
-## 安装
+## Installation
 
-### 1. 安装 awp-wallet
+### 1. Install awp-wallet
 
 ```bash
 curl -sSL https://install.awp.sh/wallet | bash
 awp-wallet setup
 ```
 
-### 2. 安装 predict-agent
+### 2. Install predict-agent
 
-一行安装（自动检测平台）：
+One-line install (auto-detects platform):
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/jackeycui7/prediction-skill/main/install.sh | sh
 ```
 
-或从 [Releases](https://github.com/jackeycui7/prediction-skill/releases) 手动下载。
+Or download manually from [Releases](https://github.com/jackeycui7/prediction-skill/releases).
 
-### 3. 配置环境
+### 3. Configure environment
 
 ```bash
-# 解锁 wallet（24 小时 session）
+# Unlock wallet (24-hour session)
 export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
 
-# 可选：指定 coordinator URL（默认 https://api.predict.awp.sh）
+# Optional: specify coordinator URL (default: https://api.predict.awp.sh)
 export PREDICT_SERVER_URL=https://api.predict.awp.sh
 ```
 
-### 4. 验证
+### 4. Verify
 
 ```bash
 predict-agent preflight
 ```
 
-输出 `"status": "ready"` 即可。
+Output should show `"status": "ready"`.
 
-## 工作原理
+## How It Works
 
 ```
-AWP Agent Runtime（每 2-3 分钟）
-  → LLM 读 SKILL.md
-  → predict-agent preflight    # 检查就绪
-  → predict-agent context      # 拿市场 + K 线 + 推荐
-  → LLM 分析 K 线，写 reasoning
-  → predict-agent submit ...   # 提交预测
+AWP Agent Runtime (every 2-3 minutes)
+  -> LLM reads SKILL.md
+  -> predict-agent preflight    # check readiness
+  -> predict-agent context      # fetch markets + klines + recommendation
+  -> LLM analyzes klines, writes reasoning
+  -> predict-agent submit ...   # submit prediction
 ```
 
-Agent 的所有操作通过 predict-agent CLI 完成。CLI 是编译后的 Rust 二进制，agent 无法修改其行为。
+All agent operations go through the predict-agent CLI. The CLI is a pre-compiled Rust binary that agents cannot modify.
 
-## 文件结构
+## File Structure
 
 ```
 prediction-skill/
-├── SKILL.md          # LLM agent 指令文件
-├── install.sh        # 一键安装脚本
-├── Cargo.toml        # Rust 项目配置
-└── src/              # predict-agent CLI 源码
-    ├── main.rs
-    ├── auth.rs       # EIP-191 签名 + awp-wallet 集成
-    ├── client.rs     # HTTP client
-    ├── output.rs     # 统一 JSON 输出
-    └── cmd/          # 7 个子命令
+├── SKILL.md              # LLM agent instruction file
+├── install.sh            # One-line install script
+├── Cargo.toml            # Rust project config
+└── src/                  # predict-agent CLI source
+    ├── main.rs           # Entry point (clap CLI)
+    ├── auth.rs           # EIP-191 signing + awp-wallet integration
+    ├── awp_register.rs   # AWP network auto-registration (gasless)
+    ├── client.rs         # HTTP client with auth headers
+    ├── output.rs         # Unified JSON output
+    └── cmd/              # Subcommands
+        ├── preflight.rs  # Wallet + registration + connectivity check
+        ├── context.rs    # Decision context (markets + klines + recommendation)
+        ├── submit.rs     # Submit prediction with CLOB order
+        ├── status.rs     # Agent balance and stats
+        ├── result.rs     # Market outcome lookup
+        ├── history.rs    # Recent prediction history
+        └── set_persona.rs # Set analysis persona (7-day cooldown)
 ```
 
-## 从源码构建（可选）
+## Build from Source (Optional)
 
 ```bash
 cargo build --release
-# 二进制在 target/release/predict-agent
+# Binary at target/release/predict-agent
 ```

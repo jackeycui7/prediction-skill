@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::client::ApiClient;
 use crate::output::{Internal, Output};
+use crate::{log_debug, log_error, log_info};
 
 pub const VALID_PERSONAS: &[&str] = &[
     "quant_trader",
@@ -18,13 +19,28 @@ pub const VALID_PERSONAS: &[&str] = &[
 ];
 
 pub fn run(server_url: &str, persona: &str) -> Result<()> {
+    log_info!("set-persona: setting persona to '{}' at {}", persona, server_url);
+
     if !VALID_PERSONAS.contains(&persona) {
-        Output::error(
-            format!("Invalid persona '{}'. Valid options: {}", persona, VALID_PERSONAS.join(", ")),
+        log_error!(
+            "set-persona: invalid persona '{}'. Valid: {:?}",
+            persona,
+            VALID_PERSONAS
+        );
+        Output::error_with_debug(
+            format!(
+                "Invalid persona '{}'. Valid options: {}",
+                persona,
+                VALID_PERSONAS.join(", ")
+            ),
             "INVALID_PERSONA",
             "validation",
             false,
             format!("Use one of: {}", VALID_PERSONAS.join(", ")),
+            json!({
+                "provided_persona": persona,
+                "valid_personas": VALID_PERSONAS,
+            }),
             Internal {
                 next_action: "fix_command".into(),
                 next_command: Some("predict-agent set-persona <persona>".into()),
@@ -38,21 +54,38 @@ pub fn run(server_url: &str, persona: &str) -> Result<()> {
     let client = ApiClient::new(server_url.to_string())?;
 
     let body = json!({ "persona": persona });
+    log_debug!("set-persona: POST /api/v1/agents/me/persona with {:?}", body);
+
     let resp = match client.post_auth("/api/v1/agents/me/persona", &body) {
         Ok(v) => v,
         Err(e) => {
             let err_str = e.to_string();
-            let (retryable, suggestion) = if err_str.contains("PERSONA_COOLDOWN") || err_str.contains("cooldown") {
-                (false, "Persona can only be changed once every 7 days.".to_string())
-            } else {
-                (true, "Check coordinator connectivity and retry.".to_string())
-            };
-            Output::error(
+            log_error!("set-persona: failed: {}", err_str);
+            let (retryable, suggestion, code) =
+                if err_str.contains("PERSONA_COOLDOWN") || err_str.contains("cooldown") {
+                    (
+                        false,
+                        "Persona can only be changed once every 7 days.".to_string(),
+                        "PERSONA_COOLDOWN",
+                    )
+                } else {
+                    (
+                        true,
+                        "Check coordinator connectivity and retry.".to_string(),
+                        "SET_PERSONA_FAILED",
+                    )
+                };
+            Output::error_with_debug(
                 format!("Failed to set persona: {}", extract_message(&err_str)),
-                "SET_PERSONA_FAILED",
+                code,
                 if retryable { "network" } else { "validation" },
                 retryable,
                 suggestion,
+                json!({
+                    "persona": persona,
+                    "raw_error": err_str,
+                    "server_url": server_url,
+                }),
                 Internal {
                     next_action: "fetch_context".into(),
                     next_command: Some("predict-agent context".into()),
@@ -65,6 +98,7 @@ pub fn run(server_url: &str, persona: &str) -> Result<()> {
     };
 
     let data = resp.get("data").cloned().unwrap_or(json!({}));
+    log_info!("set-persona: successfully set to '{}'", persona);
 
     Output::success(
         format!("Persona updated to '{}'. 7-day cooldown started.", persona),
@@ -83,7 +117,11 @@ pub fn run(server_url: &str, persona: &str) -> Result<()> {
 fn extract_message(err: &str) -> String {
     if let Some(json_start) = err.find('{') {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&err[json_start..]) {
-            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()) {
+            if let Some(msg) = v
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+            {
                 return msg.to_string();
             }
         }

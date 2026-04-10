@@ -4,12 +4,16 @@
 ///   1. AWP_PRIVATE_KEY=0x{hex}   — direct ECDSA signing (dev/test)
 ///   2. AWP_DEV_MODE=true         — dev mode, no real signing (matches server dev bypass)
 ///   3. awp-wallet subprocess     — production (calls `awp-wallet sign-message ...`)
+///
+/// Diagnostic output goes to stderr via log_debug!/log_info!/log_error!.
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use k256::ecdsa::{SigningKey, signature::hazmat::PrehashSigner};
+use k256::ecdsa::{signature::hazmat::PrehashSigner, SigningKey};
 use sha3::{Digest, Keccak256};
 use std::path::PathBuf;
+
+use crate::{log_debug, log_error, log_info};
 
 pub struct AuthHeaders {
     pub address: String,
@@ -20,7 +24,13 @@ pub struct AuthHeaders {
 /// Build auth headers for a request. Timestamp is freshly generated.
 pub fn build_auth_headers(address: &str) -> Result<AuthHeaders> {
     let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    log_debug!(
+        "Building auth headers: address={}, timestamp={}",
+        address,
+        timestamp
+    );
     let signature = sign_message(address, &timestamp)?;
+    log_debug!("Auth signature generated: {}...{}", &signature[..8.min(signature.len())], &signature[signature.len().saturating_sub(6)..]);
     Ok(AuthHeaders {
         address: address.to_string(),
         timestamp,
@@ -32,7 +42,9 @@ fn sign_message(address: &str, timestamp: &str) -> Result<String> {
     let addr_lower = address.to_lowercase();
 
     // Mode 1: direct private key
-    if let Ok(pk_hex) = std::env::var("AWP_PRIVATE_KEY") {
+    if std::env::var("AWP_PRIVATE_KEY").is_ok() {
+        log_debug!("Signing mode: AWP_PRIVATE_KEY (direct ECDSA)");
+        let pk_hex = std::env::var("AWP_PRIVATE_KEY").unwrap();
         return sign_with_key(&pk_hex, &addr_lower, timestamp);
     }
 
@@ -40,30 +52,34 @@ fn sign_message(address: &str, timestamp: &str) -> Result<String> {
     if std::env::var("AWP_DEV_MODE").as_deref() == Ok("true")
         || std::env::var("AWP_DEV_MODE").as_deref() == Ok("1")
     {
+        log_debug!("Signing mode: AWP_DEV_MODE (dev bypass, signature='dev')");
         return Ok("dev".to_string());
     }
 
     // Mode 3: awp-wallet subprocess
+    log_debug!("Signing mode: awp-wallet subprocess");
     sign_with_wallet(&addr_lower, timestamp)
 }
 
 fn sign_with_key(pk_hex: &str, addr_lower: &str, timestamp: &str) -> Result<String> {
     let pk_hex = pk_hex.strip_prefix("0x").unwrap_or(pk_hex);
-    let pk_bytes = hex::decode(pk_hex).context("Invalid AWP_PRIVATE_KEY hex")?;
-    let signing_key =
-        SigningKey::from_slice(&pk_bytes).context("Invalid private key bytes")?;
+    let pk_bytes = hex::decode(pk_hex).context("Invalid AWP_PRIVATE_KEY hex — must be a valid hex string (with or without 0x prefix)")?;
+    let signing_key = SigningKey::from_slice(&pk_bytes)
+        .context("Invalid private key bytes — expected 32-byte secp256k1 private key")?;
 
     let message = format!(
         "AWP Predict WorkNet\nAddress: {}\nTimestamp: {}",
         addr_lower, timestamp
     );
+    log_debug!("EIP-191 message to sign:\n{}", message);
 
     // EIP-191 personal_sign hash
     let msg_hash = personal_sign_hash(message.as_bytes());
 
     // Sign the prehash
-    let (sig, recovery_id): (k256::ecdsa::Signature, k256::ecdsa::RecoveryId) =
-        signing_key.sign_prehash(&msg_hash)?;
+    let (sig, recovery_id): (k256::ecdsa::Signature, k256::ecdsa::RecoveryId) = signing_key
+        .sign_prehash(&msg_hash)
+        .context("ECDSA signing failed — this should not happen with a valid key")?;
 
     // Build 65-byte signature: r || s || v (v = recovery_id + 27)
     let mut sig_bytes = [0u8; 65];
@@ -74,38 +90,68 @@ fn sign_with_key(pk_hex: &str, addr_lower: &str, timestamp: &str) -> Result<Stri
 }
 
 fn sign_with_wallet(addr_lower: &str, timestamp: &str) -> Result<String> {
-    let token = std::env::var("AWP_WALLET_TOKEN")
-        .context("AWP_WALLET_TOKEN not set. Run: awp-wallet unlock --duration 86400")?;
+    let token = std::env::var("AWP_WALLET_TOKEN").context(
+        "AWP_WALLET_TOKEN not set. You need to unlock your wallet first.\n\
+         Run: awp-wallet unlock --duration 86400 --scope full\n\
+         Then: export AWP_WALLET_TOKEN=<token from output>",
+    )?;
+    log_debug!("AWP_WALLET_TOKEN present (length={})", token.len());
 
     let message = format!(
         "AWP Predict WorkNet\nAddress: {}\nTimestamp: {}",
         addr_lower, timestamp
     );
+    log_debug!("EIP-191 message to sign:\n{}", message);
 
     let wallet_bin = find_awp_wallet()?;
+    log_debug!("Calling: {} sign-message --token ***  --message <...>", wallet_bin.display());
+
     let output = std::process::Command::new(&wallet_bin)
-        .args([
-            "sign-message",
-            "--token",
-            &token,
-            "--message",
-            &message,
-        ])
+        .args(["sign-message", "--token", &token, "--message", &message])
         .output()
-        .context("Failed to run awp-wallet")?;
+        .context(format!(
+            "Failed to execute awp-wallet at {}. Is it installed and executable?",
+            wallet_bin.display()
+        ))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("awp-wallet sign failed: {}", stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        log_error!(
+            "awp-wallet sign-message failed (exit code: {:?})\n  stderr: {}\n  stdout: {}",
+            output.status.code(),
+            stderr.trim(),
+            stdout.trim()
+        );
+        // Check for common failure patterns
+        if stderr.contains("expired") || stderr.contains("invalid token") {
+            bail!(
+                "awp-wallet session expired or token invalid. Re-unlock your wallet:\n\
+                 awp-wallet unlock --duration 86400 --scope full\n\
+                 Original error: {}",
+                stderr.trim()
+            );
+        }
+        bail!(
+            "awp-wallet sign-message failed (exit {}): {}",
+            output.status.code().map(|c| c.to_string()).unwrap_or("unknown".into()),
+            stderr.trim()
+        );
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // awp-wallet outputs JSON: {"signature": "0x..."}
-    let v: serde_json::Value =
-        serde_json::from_str(&stdout).context("awp-wallet returned invalid JSON")?;
+    log_debug!("awp-wallet sign-message output: {}", stdout.trim());
+
+    let v: serde_json::Value = serde_json::from_str(&stdout).context(format!(
+        "awp-wallet returned invalid JSON. Raw output: {}",
+        stdout.trim()
+    ))?;
     let sig = v["signature"]
         .as_str()
-        .context("awp-wallet response missing 'signature' field")?;
+        .context(format!(
+            "awp-wallet response missing 'signature' field. Got: {}",
+            serde_json::to_string_pretty(&v).unwrap_or_default()
+        ))?;
     Ok(sig.to_string())
 }
 
@@ -113,15 +159,18 @@ fn sign_with_wallet(addr_lower: &str, timestamp: &str) -> Result<String> {
 pub fn get_address() -> Result<String> {
     // Direct env var (dev/test)
     if let Ok(addr) = std::env::var("AWP_ADDRESS") {
+        log_debug!("Address source: AWP_ADDRESS env var = {}", addr);
         return Ok(addr.to_lowercase());
     }
 
     // Derive from private key
     if let Ok(pk_hex) = std::env::var("AWP_PRIVATE_KEY") {
+        log_debug!("Address source: derived from AWP_PRIVATE_KEY");
         return derive_address_from_key(&pk_hex);
     }
 
     // awp-wallet subprocess
+    log_debug!("Address source: awp-wallet receive");
     get_address_from_wallet()
 }
 
@@ -133,7 +182,9 @@ fn derive_address_from_key(pk_hex: &str) -> Result<String> {
     let point = verifying_key.to_encoded_point(false);
     let pubkey_bytes = &point.as_bytes()[1..]; // skip 0x04 prefix
     let hash = Keccak256::digest(pubkey_bytes);
-    Ok(format!("0x{}", hex::encode(&hash[12..])))
+    let addr = format!("0x{}", hex::encode(&hash[12..]));
+    log_debug!("Derived address from private key: {}", addr);
+    Ok(addr)
 }
 
 fn get_address_from_wallet() -> Result<String> {
@@ -143,28 +194,56 @@ fn get_address_from_wallet() -> Result<String> {
     let mut args = vec!["receive"];
     if !agent_id.is_empty() {
         args.extend_from_slice(&["--agent", &agent_id]);
+        log_debug!("Using AWP_AGENT_ID: {}", agent_id);
     }
     if !token.is_empty() {
         args.extend_from_slice(&["--token", &token]);
+        log_debug!("Using AWP_WALLET_TOKEN (length={})", token.len());
     }
 
     let wallet_bin = find_awp_wallet()?;
+    log_debug!("Calling: {} {}", wallet_bin.display(), args.join(" ").replace(&token, "***"));
+
     let output = std::process::Command::new(&wallet_bin)
         .args(&args)
         .output()
-        .context("Failed to run awp-wallet")?;
+        .context(format!(
+            "Failed to execute awp-wallet at {}. Is it installed?",
+            wallet_bin.display()
+        ))?;
 
     if !output.status.success() {
-        bail!("awp-wallet is locked. Run: awp-wallet unlock --duration 86400 --scope full");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        log_error!(
+            "awp-wallet receive failed (exit code: {:?})\n  stderr: {}\n  stdout: {}",
+            output.status.code(),
+            stderr.trim(),
+            stdout.trim()
+        );
+        bail!(
+            "awp-wallet is locked or not set up. Run:\n\
+             awp-wallet unlock --duration 86400 --scope full\n\
+             Error: {}",
+            stderr.trim()
+        );
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let v: serde_json::Value =
-        serde_json::from_str(&stdout).context("awp-wallet returned invalid JSON")?;
+    log_debug!("awp-wallet receive output: {}", stdout.trim());
+
+    let v: serde_json::Value = serde_json::from_str(&stdout).context(format!(
+        "awp-wallet returned invalid JSON from 'receive'. Raw output: {}",
+        stdout.trim()
+    ))?;
     let addr = v["eoaAddress"]
         .as_str()
         .or_else(|| v["address"].as_str())
-        .context("awp-wallet response missing 'eoaAddress' field")?;
+        .context(format!(
+            "awp-wallet response missing 'eoaAddress' field. Got keys: {:?}",
+            v.as_object().map(|o| o.keys().collect::<Vec<_>>())
+        ))?;
+    log_debug!("Resolved wallet address: {}", addr);
     Ok(addr.to_lowercase())
 }
 
@@ -180,6 +259,7 @@ fn personal_sign_hash(message: &[u8]) -> Vec<u8> {
 pub fn find_awp_wallet() -> Result<PathBuf> {
     // Check PATH
     if let Ok(path) = which("awp-wallet") {
+        log_debug!("Found awp-wallet in PATH: {}", path.display());
         return Ok(path);
     }
 
@@ -193,16 +273,25 @@ pub fn find_awp_wallet() -> Result<PathBuf> {
         "/usr/bin/awp-wallet".to_string(),
     ];
 
+    log_debug!("awp-wallet not in PATH, searching well-known locations...");
     for path_str in &candidates {
         let path = PathBuf::from(path_str);
+        log_debug!("  Checking: {} — {}", path_str, if path.is_file() { "FOUND" } else { "not found" });
         if path.is_file() {
+            log_info!("Found awp-wallet at {}", path.display());
             return Ok(path);
         }
     }
 
+    log_error!(
+        "awp-wallet not found. Searched PATH and: {:?}",
+        candidates
+    );
     bail!(
-        "awp-wallet not found in PATH or standard locations. \
-         Install it: curl -sSL https://install.awp.sh/wallet | bash"
+        "awp-wallet not found in PATH or standard locations.\n\
+         Searched: {}\n\
+         Install it: curl -sSL https://install.awp.sh/wallet | bash",
+        candidates.join(", ")
     )
 }
 

@@ -208,7 +208,6 @@ The CLI does not decide how many tickets to stake — that is your decision. Gui
 
 ## What You Cannot Do
 
-- You cannot access the internet, read news, or check live prices outside of predict-agent
 - You cannot run background processes or set timers
 - You cannot store state between rounds — every round starts fresh with preflight + context
 - You cannot call the coordinator API directly — only through predict-agent commands

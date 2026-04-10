@@ -1,10 +1,17 @@
 /// HTTP client wrapper for the Predict WorkNet Coordinator API.
+///
+/// All requests are logged to stderr:
+///   - Request: method, URL, auth headers present
+///   - Response: status code, body size, elapsed time
+///   - On error: full response body for diagnosis
 
 use anyhow::{bail, Context, Result};
 use reqwest::{blocking::Client, StatusCode};
 use serde_json::Value;
+use std::time::Instant;
 
 use crate::auth::{build_auth_headers, get_address};
+use crate::{log_debug, log_error, log_warn};
 
 pub struct ApiClient {
     pub base_url: String,
@@ -14,58 +21,156 @@ pub struct ApiClient {
 
 impl ApiClient {
     pub fn new(base_url: String) -> Result<Self> {
-        let address = get_address()
-            .context("Could not determine wallet address. Set AWP_ADDRESS, AWP_PRIVATE_KEY, or configure awp-wallet.")?;
+        log_debug!("Creating API client for {}", base_url);
+        let address = get_address().context(
+            "Could not determine wallet address. Set AWP_ADDRESS, AWP_PRIVATE_KEY, or configure awp-wallet.",
+        )?;
+        log_debug!("Resolved wallet address: {}", address);
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .user_agent("predict-agent/0.1.0")
             .build()?;
-        Ok(Self { base_url, address, client })
+        Ok(Self {
+            base_url,
+            address,
+            client,
+        })
     }
 
     /// GET an unauthenticated endpoint.
     pub fn get(&self, path: &str) -> Result<Value> {
         let url = format!("{}{}", self.base_url, path);
-        let resp = self.client.get(&url).send().context("Request failed")?;
-        self.parse_response(resp)
+        log_debug!("GET {} (no auth)", url);
+        let start = Instant::now();
+
+        let resp = self.client.get(&url).send().context(format!(
+            "GET {} failed: network error (is the coordinator running at {}?)",
+            path, self.base_url
+        ))?;
+
+        let elapsed = start.elapsed();
+        log_debug!("GET {} -> {} ({:.1}ms)", path, resp.status(), elapsed.as_millis());
+        self.parse_response(resp, "GET", &url, elapsed)
     }
 
     /// GET an authenticated endpoint.
     pub fn get_auth(&self, path: &str) -> Result<Value> {
         let auth = build_auth_headers(&self.address)?;
         let url = format!("{}{}", self.base_url, path);
-        let resp = self.client
+        log_debug!(
+            "GET {} (auth: address={}, timestamp={})",
+            url,
+            auth.address,
+            auth.timestamp
+        );
+        let start = Instant::now();
+
+        let resp = self
+            .client
             .get(&url)
             .header("X-AWP-Address", &auth.address)
             .header("X-AWP-Timestamp", &auth.timestamp)
             .header("X-AWP-Signature", &auth.signature)
             .send()
-            .context("Request failed")?;
-        self.parse_response(resp)
+            .context(format!(
+                "GET {} failed: network error (is the coordinator running at {}?)",
+                path, self.base_url
+            ))?;
+
+        let elapsed = start.elapsed();
+        log_debug!("GET {} -> {} ({:.1}ms)", path, resp.status(), elapsed.as_millis());
+        self.parse_response(resp, "GET", &url, elapsed)
     }
 
     /// POST an authenticated endpoint with a JSON body.
     pub fn post_auth(&self, path: &str, body: &Value) -> Result<Value> {
         let auth = build_auth_headers(&self.address)?;
         let url = format!("{}{}", self.base_url, path);
-        let resp = self.client
+        log_debug!(
+            "POST {} (auth: address={}, timestamp={}, body_keys={:?})",
+            url,
+            auth.address,
+            auth.timestamp,
+            body.as_object().map(|o| o.keys().collect::<Vec<_>>())
+        );
+        let start = Instant::now();
+
+        let resp = self
+            .client
             .post(&url)
             .header("X-AWP-Address", &auth.address)
             .header("X-AWP-Timestamp", &auth.timestamp)
             .header("X-AWP-Signature", &auth.signature)
             .json(body)
             .send()
-            .context("Request failed")?;
-        self.parse_response(resp)
+            .context(format!(
+                "POST {} failed: network error (is the coordinator running at {}?)",
+                path, self.base_url
+            ))?;
+
+        let elapsed = start.elapsed();
+        log_debug!("POST {} -> {} ({:.1}ms)", path, resp.status(), elapsed.as_millis());
+        self.parse_response(resp, "POST", &url, elapsed)
     }
 
-    fn parse_response(&self, resp: reqwest::blocking::Response) -> Result<Value> {
+    fn parse_response(
+        &self,
+        resp: reqwest::blocking::Response,
+        method: &str,
+        url: &str,
+        elapsed: std::time::Duration,
+    ) -> Result<Value> {
         let status = resp.status();
-        let body: Value = resp.json().context("Response was not valid JSON")?;
+        let body_text = resp.text().unwrap_or_default();
+
+        log_debug!(
+            "{} {} response body ({} bytes): {}",
+            method,
+            url,
+            body_text.len(),
+            if body_text.len() > 2000 {
+                format!("{}...(truncated)", &body_text[..2000])
+            } else {
+                body_text.clone()
+            }
+        );
+
+        let body: Value = serde_json::from_str(&body_text).context(format!(
+            "{} {} returned non-JSON response (status {}): {}",
+            method,
+            url,
+            status,
+            if body_text.len() > 500 {
+                format!("{}...(truncated)", &body_text[..500])
+            } else {
+                body_text.clone()
+            }
+        ))?;
 
         if status == StatusCode::OK || status == StatusCode::CREATED {
             Ok(body)
         } else {
-            // Server returns { "error": { "code": "...", "message": "...", ... } }
+            // Log the full error response for debugging
+            log_error!(
+                "{} {} returned HTTP {} ({:.1}ms): {}",
+                method,
+                url,
+                status,
+                elapsed.as_millis(),
+                serde_json::to_string(&body).unwrap_or_default()
+            );
+
+            // Extract the most useful error message
+            let server_msg = body
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .or_else(|| body.get("message").and_then(|m| m.as_str()));
+
+            if let Some(msg) = server_msg {
+                log_warn!("Server error message: {}", msg);
+            }
+
             bail!(
                 "HTTP {}: {}",
                 status,
@@ -77,14 +182,38 @@ impl ApiClient {
 
 /// Try to reach the server health endpoint. Returns Err if unreachable.
 pub fn check_server(base_url: &str) -> Result<()> {
+    let url = format!("{}/api/v1/feed/stats", base_url);
+    log_debug!("Health check: GET {}", url);
+    let start = Instant::now();
+
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(5))
+        .user_agent("predict-agent/0.1.0")
         .build()?;
-    let url = format!("{}/api/v1/feed/stats", base_url);
-    let resp = client.get(&url).send().context("Cannot reach coordinator")?;
-    if resp.status().is_success() {
+    let resp = client.get(&url).send().context(format!(
+        "Cannot reach coordinator at {} — connection refused or DNS failure. \
+         Check PREDICT_SERVER_URL and network connectivity.",
+        base_url
+    ))?;
+
+    let elapsed = start.elapsed();
+    let status = resp.status();
+    log_debug!("Health check -> {} ({:.1}ms)", status, elapsed.as_millis());
+
+    if status.is_success() {
         Ok(())
     } else {
-        bail!("Coordinator returned HTTP {}", resp.status())
+        let body = resp.text().unwrap_or_default();
+        log_error!("Health check failed: HTTP {} — {}", status, body);
+        bail!(
+            "Coordinator returned HTTP {} ({}). Response: {}",
+            status,
+            url,
+            if body.len() > 500 {
+                format!("{}...(truncated)", &body[..500])
+            } else {
+                body
+            }
+        )
     }
 }

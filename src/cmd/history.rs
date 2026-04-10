@@ -5,19 +5,28 @@ use serde_json::json;
 
 use crate::client::ApiClient;
 use crate::output::{Internal, Output};
+use crate::{log_debug, log_error, log_info};
 
 pub fn run(server_url: &str, limit: u32) -> Result<()> {
+    log_info!("history: fetching last {} predictions from {}", limit, server_url);
     let client = ApiClient::new(server_url.to_string())?;
 
     let resp = match client.get_auth(&format!("/api/v1/predictions/me?limit={}", limit)) {
         Ok(v) => v,
         Err(e) => {
-            Output::error(
+            log_error!("history: failed to fetch: {}", e);
+            Output::error_with_debug(
                 format!("Failed to fetch history: {e}"),
                 "HISTORY_FAILED",
                 "network",
                 true,
                 "Check coordinator connectivity.",
+                json!({
+                    "server_url": server_url,
+                    "limit": limit,
+                    "error_detail": format!("{e}"),
+                    "error_chain": format!("{e:#}"),
+                }),
                 Internal {
                     next_action: "retry".into(),
                     next_command: Some(format!("predict-agent history --limit {}", limit)),
@@ -39,7 +48,6 @@ pub fn run(server_url: &str, limit: u32) -> Result<()> {
     let correct: usize = preds
         .iter()
         .filter(|p| {
-            // Correct = payout_chips > 0 and order was filled
             p.get("payout_chips")
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<f64>().ok())
@@ -53,6 +61,20 @@ pub fn run(server_url: &str, limit: u32) -> Result<()> {
     } else {
         0.0
     };
+
+    log_info!(
+        "history: {} predictions returned, {} correct ({:.1}% accuracy)",
+        count,
+        correct,
+        accuracy * 100.0
+    );
+    log_debug!(
+        "history: markets = {:?}",
+        preds
+            .iter()
+            .filter_map(|p| p.get("market_id").and_then(|m| m.as_str()))
+            .collect::<Vec<_>>()
+    );
 
     Output::success(
         format!(
