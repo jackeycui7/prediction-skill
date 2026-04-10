@@ -74,6 +74,8 @@ export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
 
 If the wallet already exists but the token expired, just re-run the unlock command above.
 
+**IMPORTANT:** `AWP_WALLET_TOKEN` is a shell environment variable — it is lost when you open a new shell or start a new session. If `predict-agent preflight` fails with `WALLET_NOT_CONFIGURED` or `AUTH_FAILED`, the most likely cause is that the token is not set in the current shell. Re-run the `export AWP_WALLET_TOKEN=...` command above. Do NOT run `awp-wallet init` again.
+
 After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight handles AWP network registration automatically (gasless, free).
 
 ## Workflow
