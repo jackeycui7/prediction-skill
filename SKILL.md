@@ -75,7 +75,26 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 
 ## Workflow
 
-Every round follows the same 3-step sequence. No exceptions.
+### Background Loop (Preferred)
+
+After setup and preflight pass, start the background prediction loop:
+
+```
+predict-agent loop --interval 120 --agent-id predict-worker
+```
+
+This runs continuously: fetches markets → calls your LLM (via OpenClaw) to analyze klines → submits predictions → sleeps → repeats. The loop handles error recovery, rate limit backoff, and graceful shutdown (Ctrl+C).
+
+Options:
+- `--interval 120` — seconds between rounds (default: 120)
+- `--max-iterations 0` — 0 = unlimited (default)
+- `--agent-id predict-worker` — OpenClaw agent name for LLM calls
+
+Once started, you do not need to do anything else. The loop manages everything.
+
+### Manual Mode (Alternative)
+
+If you prefer to run one round at a time, follow the 3-step sequence below. No exceptions.
 
 ### Step 1: Preflight Check
 

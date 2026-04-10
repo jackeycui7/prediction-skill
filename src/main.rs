@@ -103,6 +103,21 @@ enum Commands {
         /// Persona name
         persona: String,
     },
+
+    /// Run continuous prediction loop (background worker)
+    Loop {
+        /// Seconds between prediction rounds
+        #[arg(long, default_value = "120")]
+        interval: u64,
+
+        /// Max iterations (0 = unlimited)
+        #[arg(long, default_value = "0")]
+        max_iterations: u64,
+
+        /// OpenClaw agent ID for LLM calls
+        #[arg(long, default_value = "predict-worker")]
+        agent_id: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -134,6 +149,18 @@ fn main() -> Result<()> {
         Commands::Result { market } => cmd::result::run(server, &market)?,
         Commands::History { limit } => cmd::history::run(server, limit)?,
         Commands::SetPersona { persona } => cmd::set_persona::run(server, &persona)?,
+        Commands::Loop {
+            interval,
+            max_iterations,
+            agent_id,
+        } => cmd::loop_worker::run(
+            server,
+            cmd::loop_worker::LoopArgs {
+                interval,
+                max_iterations,
+                agent_id,
+            },
+        )?,
     }
 
     Ok(())
