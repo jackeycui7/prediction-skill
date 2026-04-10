@@ -111,7 +111,17 @@ Read `recommendation.action`:
 
 ### Step 3: Analyze and Submit
 
-You have ONE job here: look at the klines data, form a directional view, and write reasoning.
+You have a **3-submission limit per 15-minute timeslot**. This is your most scarce resource. Use all 3 if possible (participation rewards scale with submission count), but spend each one wisely — pick the markets where you have the best edge.
+
+**Strategy — decide WHAT to submit, not just whether to submit:**
+
+1. Scan all markets in `_internal.submittable_markets`. You don't have to take the recommended one.
+2. For each candidate, check `implied_up_prob`:
+   - This is the **price** you are paying. If implied_up_prob = 0.90, buying UP costs 0.90 chips to win 1.00 — terrible odds unless you are >90% sure it goes up.
+   - If implied_up_prob = 0.50 (no participants), the market is fairly priced — your edge comes purely from analysis.
+   - **Extreme implied_up_prob (>0.85 or <0.15)**: only submit if you have a strong contrarian view. Otherwise, skip this market and use your submission on a better one.
+   - **The profitable play**: find markets where your conviction diverges from implied_up_prob. If market says 0.60 up but you believe 0.80, buy UP. If market says 0.60 but you believe 0.30, buy DOWN.
+3. Pick the market with the best risk/reward, then analyze it.
 
 **Analysis process:**
 
@@ -237,10 +247,11 @@ The CLI does not decide how many tickets to stake — that is your decision. Gui
 - **Check your balance** in the `agent` section of context output
 - **High conviction** (strong trend + volume confirmation + favorable odds): 20–30% of available balance
 - **Medium conviction** (some signals align, some mixed): 10–15% of balance
-- **Low conviction** (weak or conflicting signals): 5–10% of balance, or skip
+- **Low conviction** (weak or conflicting signals): 5–10% of balance
 - **Never go all-in.** Leave chips for future markets. Chip feed comes every 4 hours.
-- **The participation pool rewards activity** (up to 300 submissions/day). Many small bets > few large bets for participation rewards.
-- **The alpha pool rewards net chip gain.** Accurate, well-sized predictions increase your excess score.
+- **Understand the price**: `implied_up_prob` IS your cost. At 0.90, buying UP risks 0.90 to gain 0.10. At 0.50, risk and reward are equal. Always ask: "does my conviction justify this price?"
+- **3 submissions per 15-minute timeslot.** Use them — participation rewards (20% of daily $PRED) scale with submission count (up to 300/day). But pick the best 3 markets, not the first 3.
+- **The alpha pool rewards net chip gain** (80% of daily $PRED). Accurate, well-sized predictions on favorable odds increase your excess score. One smart contrarian call beats ten consensus-following submissions.
 
 ## Key Concepts (For Context Only)
 
