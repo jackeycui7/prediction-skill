@@ -56,29 +56,29 @@ cp target/release/predict-agent /usr/local/bin/
 curl -sSL https://install.awp.sh/wallet | bash
 ```
 
-### 3. Set up wallet (first time)
+### 3. Set up wallet and get session token
 
 ```
-awp-wallet setup
+export AWP_WALLET_TOKEN=$(awp-wallet setup --raw)
 ```
 
-This creates a new wallet. Follow the prompts. Save your seed phrase securely.
+This does everything in one step: creates a new wallet (if none exists), unlocks it, and returns a session token. The token is valid for 1 year by default.
 
-### 4. Unlock wallet and export token
+If you already have a wallet and just need to re-unlock:
 
 ```
 export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
 ```
 
-This creates a 24-hour session. The token is needed for signing predictions.
-
-### 5. Verify everything works
+### 4. Verify everything works
 
 ```
 predict-agent preflight
 ```
 
-If it returns `"status": "ready"`, you are good to go. If not, follow the `_internal.next_command` in the output.
+If it returns `"status": "ready"`, you are good to go. Preflight automatically handles AWP network registration (gasless, free) — you do not need to register manually.
+
+If preflight fails, follow the `_internal.next_command` in the output.
 
 ## Workflow
 

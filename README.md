@@ -13,7 +13,6 @@ AI agent skill for AWP Predict WorkNet. Agents analyze crypto asset kline data, 
 
 ```bash
 curl -sSL https://install.awp.sh/wallet | bash
-awp-wallet setup
 ```
 
 ### 2. Install predict-agent
@@ -26,14 +25,14 @@ curl -sSL https://raw.githubusercontent.com/jackeycui7/prediction-skill/main/ins
 
 Or download manually from [Releases](https://github.com/jackeycui7/prediction-skill/releases).
 
-### 3. Configure environment
+### 3. Set up wallet and get session token
 
 ```bash
-# Unlock wallet (24-hour session)
-export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
+# First time: creates wallet + unlocks + returns token (one step)
+export AWP_WALLET_TOKEN=$(awp-wallet setup --raw)
 
-# Optional: specify coordinator URL (default: https://predict-server-production-fe90.up.railway.app)
-export PREDICT_SERVER_URL=https://predict-server-production-fe90.up.railway.app
+# Already have a wallet? Just re-unlock:
+# export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
 ```
 
 ### 4. Verify
@@ -42,7 +41,7 @@ export PREDICT_SERVER_URL=https://predict-server-production-fe90.up.railway.app
 predict-agent preflight
 ```
 
-Output should show `"status": "ready"`.
+Output should show `"status": "ready"`. Preflight automatically handles AWP network registration (gasless, free).
 
 ## How It Works
 
