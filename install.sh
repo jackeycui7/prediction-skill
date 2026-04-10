@@ -22,7 +22,12 @@ case "${ARCH}" in
   *)               echo "Error: unsupported architecture: ${ARCH}"; exit 1 ;;
 esac
 
-BINARY_NAME="predict-agent-${OS_NAME}-${ARCH_NAME}"
+# On Linux x86_64, prefer musl (static) build to avoid glibc version issues
+if [ "${OS_NAME}" = "linux" ] && [ "${ARCH_NAME}" = "x86_64" ]; then
+  BINARY_NAME="predict-agent-linux-x86_64-musl"
+else
+  BINARY_NAME="predict-agent-${OS_NAME}-${ARCH_NAME}"
+fi
 
 # Get latest release tag
 echo "Fetching latest release..."
