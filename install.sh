@@ -24,11 +24,6 @@ esac
 
 BINARY_NAME="predict-agent-${OS_NAME}-${ARCH_NAME}"
 
-# Use musl build on Linux x86_64 for maximum compatibility
-if [ "${OS_NAME}" = "linux" ] && [ "${ARCH_NAME}" = "x86_64" ]; then
-  BINARY_NAME="predict-agent-${OS_NAME}-${ARCH_NAME}-musl"
-fi
-
 # Get latest release tag
 echo "Fetching latest release..."
 LATEST=$(curl -sSL -H "Accept: application/vnd.github+json" \
