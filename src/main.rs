@@ -11,6 +11,7 @@
 ///   AWP_AGENT_ID         Agent ID for awp-wallet multi-agent support
 
 mod auth;
+mod awp_register;
 mod client;
 mod cmd;
 mod output;

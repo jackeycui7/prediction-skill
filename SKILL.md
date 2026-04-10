@@ -39,6 +39,8 @@ Every round follows the same 3-step sequence. No exceptions.
 predict-agent preflight
 ```
 
+Preflight checks (in order): wallet configured → AWP network registration (auto-registers if needed, free/gasless) → coordinator reachable → auth works.
+
 Read the output:
 - If `ok` is `false`: execute the command in `_internal.next_command`, then stop this round.
 - If `ok` is `true`: proceed to Step 2.
@@ -127,6 +129,8 @@ When a command returns `ok: false`, the error object tells you exactly what happ
 | `REASONING_DUPLICATE` | Write completely new analysis. Do not reuse or rephrase previous reasoning. |
 | `AUTH_FAILED` | Wallet issue. Run `predict-agent preflight` to diagnose. |
 | `COORDINATOR_UNREACHABLE` | Network issue. Wait 30 seconds, then retry `predict-agent preflight`. |
+| `AWP_NOT_REGISTERED` | Wallet token needed. Run `awp-wallet unlock --duration 86400 --scope full`. |
+| `AWP_REGISTRATION_PENDING` | Wait and retry preflight. Registration is being confirmed. |
 | `WALLET_NOT_CONFIGURED` | Follow `_internal.next_command` to set up wallet. |
 
 **General rule:** always check `_internal.next_command` in the error output and execute it. The CLI already computed the correct recovery action for you.
