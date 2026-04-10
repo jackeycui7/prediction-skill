@@ -196,13 +196,12 @@ fn get_address_from_wallet() -> Result<String> {
         args.extend_from_slice(&["--agent", &agent_id]);
         log_debug!("Using AWP_AGENT_ID: {}", agent_id);
     }
-    if !token.is_empty() {
-        args.extend_from_slice(&["--token", &token]);
-        log_debug!("Using AWP_WALLET_TOKEN (length={})", token.len());
-    }
+    // Note: `awp-wallet receive` does NOT accept --token.
+    // It reads the address directly from keystore metadata.
+    log_debug!("AWP_WALLET_TOKEN present: {}", !token.is_empty());
 
     let wallet_bin = find_awp_wallet()?;
-    log_debug!("Calling: {} {}", wallet_bin.display(), args.join(" ").replace(&token, "***"));
+    log_debug!("Calling: {} {}", wallet_bin.display(), args.join(" "));
 
     let output = std::process::Command::new(&wallet_bin)
         .args(&args)
