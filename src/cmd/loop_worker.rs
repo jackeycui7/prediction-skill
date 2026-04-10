@@ -390,29 +390,73 @@ fn build_prompt(
     let implied_up = recommended["implied_up_prob"].as_f64().unwrap_or(0.5);
     let closes_in = recommended["closes_in_seconds"].as_i64().unwrap_or(0);
 
-    let mut prompt = String::with_capacity(4000);
+    let mut prompt = String::with_capacity(6000);
 
+    // Identity and context
     prompt.push_str(&format!(
-        "You are a crypto prediction agent{}. Analyze the market data below and decide whether to predict UP or DOWN.\n\n",
-        if persona != "none" { format!(" with persona: {}", persona) } else { String::new() }
+        "You are a prediction agent competing in AWP Predict WorkNet{}.\n\n",
+        if persona != "none" { format!(" (persona: {})", persona) } else { String::new() }
     ));
 
-    prompt.push_str("## Your Task\n\n");
-    prompt.push_str("Respond with a JSON object containing:\n");
-    prompt.push_str("- \"direction\": \"up\" or \"down\"\n");
-    prompt.push_str("- \"reasoning\": your analysis (80-2000 characters, at least 2 sentences, mention the asset or a direction word)\n");
-    prompt.push_str("- \"tickets\": number of tickets to stake (integer)\n");
-    prompt.push_str(&format!("- \"market_id\": market to submit to (default: \"{}\")\n\n", market_id));
-    prompt.push_str("IMPORTANT: Output ONLY the JSON object, nothing else. No markdown fences, no explanation outside the JSON.\n\n");
+    // Game rules — the agent must understand the full picture
+    prompt.push_str("## Game Rules\n\n");
+    prompt.push_str("You are playing a prediction market game against other AI agents. Understanding the rules is critical to making profitable decisions.\n\n");
+    prompt.push_str("**How markets work:**\n");
+    prompt.push_str("- Each market asks: will this asset's price go UP or DOWN within a time window (15m/30m/1h)?\n");
+    prompt.push_str("- You commit chips (virtual tokens) to your prediction. Winners get 1 chip per ticket. Losers get 0.\n");
+    prompt.push_str("- Chips come from Chip Feed: 10,000 chips every 4 hours. Your current balance is all you have until the next feed.\n\n");
 
+    prompt.push_str("**How pricing works (CLOB):**\n");
+    prompt.push_str("- `implied_up_prob` is the market price, NOT a forecast. It reflects what other agents have already committed.\n");
+    prompt.push_str("- When you buy UP at price 0.70, you pay 0.70 chips per ticket. If UP wins, you get 1.00 back (profit 0.30). If DOWN wins, you lose 0.70.\n");
+    prompt.push_str("- When you buy DOWN at price 0.70 (meaning implied_up=0.70), you pay 0.30 per ticket. If DOWN wins, you get 1.00 (profit 0.70). If UP wins, you lose 0.30.\n");
+    prompt.push_str("- The further the price is from 0.50, the worse the odds for the popular side and the better for the contrarian.\n\n");
+
+    prompt.push_str("**How you earn $PRED rewards:**\n");
+    prompt.push_str("- Participation Pool (20%): proportional to your number of submissions (capped at 300/day). More submissions = more participation reward.\n");
+    prompt.push_str("- Alpha Pool (80%): proportional to your excess_score = max(0, balance - total_chips_fed_today). You earn Alpha only if you grew your chip balance beyond what was given.\n");
+    prompt.push_str("- Implication: submit often for participation rewards, but be accurate and size well for Alpha rewards. Reckless large bets that lose destroy your Alpha score.\n\n");
+
+    prompt.push_str("**Constraints:**\n");
+    prompt.push_str("- 3 submissions per 15-minute timeslot. Use all 3 for participation, but pick the best opportunities.\n");
+    prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n\n");
+
+    // Response format
+    prompt.push_str("## Your Response\n\n");
+    prompt.push_str("Output a JSON object with these fields:\n");
+    prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction\n");
+    prompt.push_str("- \"reasoning\": your analysis (80-2000 chars, ≥2 sentences, must mention the asset or a direction word like up/down/bullish/bearish). Must be original every time.\n");
+    prompt.push_str("- \"tickets\": how many chips to commit (integer, ≥1)\n");
+    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\")\n\n", market_id));
+    prompt.push_str("Output ONLY the JSON. No markdown fences, no text outside the JSON.\n\n");
+
+    // Current state
+    prompt.push_str("## Your Current State\n\n");
+    prompt.push_str(&format!("- Balance: {:.0} chips\n", balance));
+    prompt.push_str(&format!("- Available markets: {}\n\n", all_markets.len()));
+
+    // Recommended market
     prompt.push_str("## Recommended Market\n\n");
-    prompt.push_str(&format!("- Market ID: {}\n", market_id));
+    prompt.push_str(&format!("- ID: {}\n", market_id));
     prompt.push_str(&format!("- Asset: {}\n", asset));
     prompt.push_str(&format!("- Window: {}\n", window));
-    prompt.push_str(&format!("- Closes in: {} seconds\n", closes_in));
-    prompt.push_str(&format!("- Implied UP probability: {:.2} (this is your COST — at {:.2}, buying UP risks {:.2} to gain {:.2})\n",
-        implied_up, implied_up, implied_up, 1.0 - implied_up));
-    prompt.push_str(&format!("- Your balance: {:.0} chips\n\n", balance));
+    prompt.push_str(&format!("- Closes in: {}s\n", closes_in));
+    prompt.push_str(&format!("- implied_up_prob: {:.2}\n", implied_up));
+    // Explain the odds concretely
+    if implied_up > 0.5 {
+        prompt.push_str(&format!(
+            "  → Buying UP costs {:.2}, profit if correct: {:.2}. Buying DOWN costs {:.2}, profit if correct: {:.2}.\n",
+            implied_up, 1.0 - implied_up, 1.0 - implied_up, implied_up
+        ));
+    } else if implied_up < 0.5 {
+        prompt.push_str(&format!(
+            "  → Buying UP costs {:.2}, profit if correct: {:.2}. Buying DOWN costs {:.2}, profit if correct: {:.2}.\n",
+            implied_up, 1.0 - implied_up, 1.0 - implied_up, implied_up
+        ));
+    } else {
+        prompt.push_str("  → Fair odds (0.50/0.50). Your edge comes purely from analysis.\n");
+    }
+    prompt.push('\n');
 
     // Klines data
     if let Some(candles) = klines {
@@ -420,7 +464,6 @@ fn build_prompt(
             prompt.push_str(&format!("## Klines ({} candles)\n\n", candles.len()));
             prompt.push_str("time | open | high | low | close | volume\n");
             prompt.push_str("--- | --- | --- | --- | --- | ---\n");
-            // Show last 20 candles to keep prompt manageable
             let start = if candles.len() > 20 { candles.len() - 20 } else { 0 };
             for candle in &candles[start..] {
                 if let Some(obj) = candle.as_object() {
@@ -437,33 +480,28 @@ fn build_prompt(
             }
             prompt.push('\n');
         } else {
-            prompt.push_str("## Klines\n\nNo kline data available. Base your analysis on market data.\n\n");
+            prompt.push_str("## Klines\n\nNo kline data available. Use market data and general market awareness.\n\n");
         }
     } else {
-        prompt.push_str("## Klines\n\nNo kline data available. Base your analysis on market data.\n\n");
+        prompt.push_str("## Klines\n\nNo kline data available. Use market data and general market awareness.\n\n");
     }
 
     // Other available markets
     if all_markets.len() > 1 {
         prompt.push_str("## Other Available Markets\n\n");
-        for m in all_markets.iter().skip(1).take(5) {
+        for m in all_markets.iter().skip(1).take(8) {
+            let m_implied = m["implied_up_prob"].as_f64().unwrap_or(0.5);
             prompt.push_str(&format!(
                 "- {} ({} {}) implied_up={:.2} closes_in={}s\n",
                 m["id"].as_str().unwrap_or("?"),
                 m["asset"].as_str().unwrap_or("?"),
                 m["window"].as_str().unwrap_or("?"),
-                m["implied_up_prob"].as_f64().unwrap_or(0.5),
+                m_implied,
                 m["closes_in_seconds"].as_i64().unwrap_or(0),
             ));
         }
-        prompt.push_str("\nYou may choose a different market by setting \"market_id\" in your response.\n\n");
+        prompt.push_str("\nYou may choose a different market if you see better odds or stronger conviction.\n\n");
     }
-
-    prompt.push_str("## Guidelines\n\n");
-    prompt.push_str("- implied_up_prob IS your cost. Find markets where your conviction diverges from the price.\n");
-    prompt.push_str("- Ticket sizing: high conviction 20-30% balance, medium 10-15%, low 5-10%. Never all-in.\n");
-    prompt.push_str("- Reasoning must be original every time — never repeat analysis.\n");
-    prompt.push_str("- You have 3 submissions per 15-minute timeslot. Use them wisely.\n");
 
     prompt
 }
