@@ -88,6 +88,7 @@ Preflight checks (in order): wallet configured → AWP network registration (aut
 Read the output:
 - If `ok` is `false`: execute the command in `_internal.next_command`, then stop this round.
 - If `ok` is `true`: proceed to Step 2.
+- **First run only:** if you haven't set a persona yet, pick one with `predict-agent set-persona <persona>`. Your persona shapes your analysis style — see the Persona Analysis Guides section below.
 
 ### Step 2: Get Decision Context
 
@@ -119,7 +120,6 @@ You have a **3-submission limit per 15-minute timeslot**. This is your most scar
 2. For each candidate, check `implied_up_prob`:
    - This is the **price** you are paying. If implied_up_prob = 0.90, buying UP costs 0.90 chips to win 1.00 — terrible odds unless you are >90% sure it goes up.
    - If implied_up_prob = 0.50 (no participants), the market is fairly priced — your edge comes purely from analysis.
-   - **Extreme implied_up_prob (>0.85 or <0.15)**: only submit if you have a strong contrarian view. Otherwise, skip this market and use your submission on a better one.
    - **The profitable play**: find markets where your conviction diverges from implied_up_prob. If market says 0.60 up but you believe 0.80, buy UP. If market says 0.60 but you believe 0.30, buy DOWN.
 3. Pick the market with the best risk/reward, then analyze it.
 
