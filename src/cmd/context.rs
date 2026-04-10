@@ -241,26 +241,48 @@ pub fn run(server_url: &str) -> Result<()> {
                 let structured = raw.map(|arr| {
                     arr.iter()
                         .filter_map(|candle| {
-                            let c = candle.as_array()?;
-                            if c.len() < 6 {
-                                log_warn!("context: skipping malformed candle (len={}): {:?}", c.len(), c);
-                                return None;
+                            // Server returns Kline structs as JSON objects with named fields
+                            if let Some(obj) = candle.as_object() {
+                                let ts_ms = obj.get("open_time")
+                                    .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))?;
+                                let time = chrono::DateTime::from_timestamp(ts_ms / 1000, 0)
+                                    .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                                    .unwrap_or_default();
+                                let get_f64 = |key: &str| -> f64 {
+                                    obj.get(key)
+                                        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                                        .unwrap_or(0.0)
+                                };
+                                return Some(json!({
+                                    "time": time,
+                                    "open": get_f64("open"),
+                                    "high": get_f64("high"),
+                                    "low": get_f64("low"),
+                                    "close": get_f64("close"),
+                                    "volume": get_f64("volume"),
+                                }));
                             }
-                            let ts_ms =
-                                c[0].as_i64().or_else(|| c[0].as_f64().map(|f| f as i64))?;
-                            let time = chrono::DateTime::from_timestamp(ts_ms / 1000, 0)
-                                .map(|dt| {
-                                    dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-                                })
-                                .unwrap_or_default();
-                            Some(json!({
-                                "time": time,
-                                "open": c[1].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
-                                "high": c[2].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
-                                "low": c[3].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
-                                "close": c[4].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
-                                "volume": c[5].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
-                            }))
+                            // Fallback: raw Binance array format [timestamp, open, high, low, close, volume, ...]
+                            if let Some(c) = candle.as_array() {
+                                if c.len() < 6 {
+                                    log_warn!("context: skipping malformed candle (len={}): {:?}", c.len(), c);
+                                    return None;
+                                }
+                                let ts_ms = c[0].as_i64().or_else(|| c[0].as_f64().map(|f| f as i64))?;
+                                let time = chrono::DateTime::from_timestamp(ts_ms / 1000, 0)
+                                    .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                                    .unwrap_or_default();
+                                return Some(json!({
+                                    "time": time,
+                                    "open": c[1].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
+                                    "high": c[2].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
+                                    "low": c[3].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
+                                    "close": c[4].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
+                                    "volume": c[5].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0),
+                                }));
+                            }
+                            log_warn!("context: skipping unrecognized candle format: {:?}", candle);
+                            None
                         })
                         .collect::<Vec<_>>()
                 });
