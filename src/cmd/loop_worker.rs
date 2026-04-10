@@ -378,6 +378,18 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
     );
 
     // 10. Submit prediction
+    // Build canonical body for signature (matches server's format)
+    // Format: market_id|prediction|limit_price_or_none|tickets|sha256(reasoning)
+    let reasoning_hash = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(reasoning.as_bytes()))
+    };
+    let canonical_body = format!(
+        "{}|{}|none|{}|{}",
+        final_market, direction, final_tickets, reasoning_hash
+    );
+    log_debug!("loop: canonical body = {}", canonical_body);
+
     let body = json!({
         "market_id": final_market,
         "prediction": direction,
@@ -385,7 +397,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         "reasoning": reasoning,
     });
 
-    match client.post_auth("/api/v1/predictions", &body) {
+    match client.post_auth_with_canonical(canonical_body.as_bytes(), "/api/v1/predictions", &body) {
         Ok(resp) => {
             let status = resp
                 .get("data")
