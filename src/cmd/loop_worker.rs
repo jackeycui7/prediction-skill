@@ -551,6 +551,34 @@ fn build_prompt(
             ob.get("down_open").and_then(|v| v.as_i64()).unwrap_or(0),
         ));
     }
+    // Last prediction on this asset — enables continuity
+    if let Some(lp) = recommended.get("last_prediction") {
+        if !lp.is_null() {
+            let lp_dir = lp.get("direction").and_then(|v| v.as_str()).unwrap_or("?");
+            let lp_won = lp.get("won").and_then(|v| v.as_bool());
+            let lp_outcome = lp.get("outcome").and_then(|v| v.as_str()).unwrap_or("pending");
+            let lp_reasoning = lp.get("reasoning_text").and_then(|v| v.as_str()).unwrap_or("");
+            prompt.push_str(&format!(
+                "\n**Your last prediction on {}:**\n",
+                asset
+            ));
+            prompt.push_str(&format!("- Direction: {}\n", lp_dir.to_uppercase()));
+            match lp_won {
+                Some(true) => prompt.push_str(&format!("- Result: WON (outcome was {})\n", lp_outcome)),
+                Some(false) => prompt.push_str(&format!("- Result: LOST (outcome was {})\n", lp_outcome)),
+                None => prompt.push_str("- Result: pending (market not yet resolved)\n"),
+            }
+            if !lp_reasoning.is_empty() {
+                let truncated = if lp_reasoning.len() > 200 {
+                    format!("{}...", &lp_reasoning[..200])
+                } else {
+                    lp_reasoning.to_string()
+                };
+                prompt.push_str(&format!("- Your reasoning was: \"{}\"\n", truncated));
+            }
+            prompt.push_str("- Consider: was your thesis correct? Should you continue or reverse?\n");
+        }
+    }
     // Explain the odds concretely
     if implied_up > 0.5 {
         prompt.push_str(&format!(
@@ -605,9 +633,22 @@ fn build_prompt(
             let mid = m.get("market_id").or_else(|| m.get("id")).and_then(|v| v.as_str()).unwrap_or("?");
             let masset = m.get("asset").and_then(|v| v.as_str()).unwrap_or("?");
             let mwindow = m.get("window").and_then(|v| v.as_str()).unwrap_or("?");
+            // Include last prediction summary if available
+            let lp_hint = m.get("last_prediction")
+                .filter(|lp| !lp.is_null())
+                .and_then(|lp| {
+                    let dir = lp.get("direction").and_then(|v| v.as_str())?;
+                    let result = match lp.get("won").and_then(|v| v.as_bool()) {
+                        Some(true) => "won",
+                        Some(false) => "lost",
+                        None => "pending",
+                    };
+                    Some(format!(" [last: {} {}]", dir, result))
+                })
+                .unwrap_or_default();
             prompt.push_str(&format!(
-                "- {} ({} {}) score={} suggested={} — {}\n",
-                mid, masset, mwindow, score, suggested, reason
+                "- {} ({} {}) score={} suggested={}{} — {}\n",
+                mid, masset, mwindow, score, suggested, lp_hint, reason
             ));
         }
         prompt.push_str("\nYou may choose a different market by setting \"market_id\" in your response.\n\n");
