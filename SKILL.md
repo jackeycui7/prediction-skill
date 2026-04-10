@@ -81,30 +81,33 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 
 ## Workflow
 
-### Background Loop (Preferred)
+### Start the Prediction Loop
 
-**Requires OpenClaw CLI.** If `openclaw` is not installed, install it first: https://docs.openclaw.com/install
-
-After setup and preflight pass, start the background prediction loop:
+**IMPORTANT: After preflight passes, run this command and stop:**
 
 ```
 predict-agent loop --interval 120 --agent-id predict-worker
 ```
 
-This runs continuously: fetches markets → calls LLM (via OpenClaw) to analyze klines → submits predictions → sleeps → repeats. The loop handles error recovery, rate limit backoff, and graceful shutdown (Ctrl+C).
+This is the ONLY command you need. The loop:
+- Fetches market context automatically
+- Spawns a sub-agent (via OpenClaw) to analyze klines and decide predictions
+- Submits predictions with proper reasoning
+- Handles rate limits, errors, and retries
+- Runs continuously until you stop it (Ctrl+C)
 
-**You SHOULD use the loop mode** — it handles all the complexity for you. Manual mode is only for debugging or when OpenClaw is unavailable.
+**DO NOT manually run context/submit commands.** The loop does everything. Your job is done after starting it.
 
 Options:
 - `--interval 120` — seconds between rounds (default: 120)
 - `--max-iterations 0` — 0 = unlimited (default)
-- `--agent-id predict-worker` — OpenClaw agent name for LLM calls
+- `--agent-id predict-worker` — OpenClaw agent name for LLM analysis
 
-Once started, you do not need to do anything else. The loop manages everything.
+### Manual Mode (Debug Only)
 
-### Manual Mode (Alternative)
+**Skip this section.** Only use manual mode if the loop command fails and you need to debug.
 
-If you prefer to run one round at a time, follow the 3-step sequence below. No exceptions.
+If you must run one round at a time, follow the 3-step sequence below:
 
 ### Step 1: Preflight Check
 
