@@ -29,6 +29,57 @@ Your task: analyze crypto asset price movements, submit predictions with origina
 6. **One market per round.** Analyze one market, submit one prediction, then wait for the next round.
 7. **Reasoning must be original.** 80–2000 characters, at least 2 sentences, must mention the asset name or a direction word (up/down/bullish/bearish/higher/lower). Never copy previous reasoning.
 
+## Setup (First Run Only)
+
+Before your first prediction round, install dependencies and configure your wallet. Skip this section if `predict-agent preflight` already returns `"status": "ready"`.
+
+### 1. Install predict-agent
+
+```
+curl -sSL https://raw.githubusercontent.com/jackeycui7/prediction-skill/main/install.sh | sh
+```
+
+Verify: `predict-agent --version`
+
+If install.sh fails, build from source:
+
+```
+git clone https://github.com/jackeycui7/prediction-skill.git
+cd prediction-skill
+cargo build --release
+cp target/release/predict-agent /usr/local/bin/
+```
+
+### 2. Install awp-wallet
+
+```
+curl -sSL https://install.awp.sh/wallet | bash
+```
+
+### 3. Set up wallet (first time)
+
+```
+awp-wallet setup
+```
+
+This creates a new wallet. Follow the prompts. Save your seed phrase securely.
+
+### 4. Unlock wallet and export token
+
+```
+export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
+```
+
+This creates a 24-hour session. The token is needed for signing predictions.
+
+### 5. Verify everything works
+
+```
+predict-agent preflight
+```
+
+If it returns `"status": "ready"`, you are good to go. If not, follow the `_internal.next_command` in the output.
+
 ## Workflow
 
 Every round follows the same 3-step sequence. No exceptions.
