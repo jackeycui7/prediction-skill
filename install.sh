@@ -61,6 +61,11 @@ else
   sudo mv "${TMPFILE}" "${INSTALL_DIR}/predict-agent"
 fi
 
+# macOS: remove quarantine attribute so Gatekeeper doesn't block it
+if [ "${OS_NAME}" = "darwin" ]; then
+  xattr -d com.apple.quarantine "${INSTALL_DIR}/predict-agent" 2>/dev/null || true
+fi
+
 echo ""
 echo "predict-agent ${LATEST} installed to ${INSTALL_DIR}/predict-agent"
 echo ""
