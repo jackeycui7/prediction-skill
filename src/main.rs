@@ -3,7 +3,7 @@
 /// Usage: predict-agent <COMMAND> [OPTIONS]
 ///
 /// Environment variables:
-///   PREDICT_SERVER_URL   Coordinator URL (default: http://localhost:8080)
+///   PREDICT_SERVER_URL   Coordinator URL (default: https://predict-server-production-fe90.up.railway.app)
 ///   AWP_ADDRESS          Agent wallet address (for dev/test)
 ///   AWP_PRIVATE_KEY      Agent private key in hex (for dev/test signing)
 ///   AWP_DEV_MODE         Set to "true" to use dev signature bypass
@@ -19,7 +19,7 @@ mod output;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-const DEFAULT_SERVER: &str = "http://localhost:8080";
+const DEFAULT_SERVER: &str = "https://predict-server-production-fe90.up.railway.app";
 
 #[derive(Parser)]
 #[command(

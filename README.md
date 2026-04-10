@@ -32,8 +32,8 @@ Or download manually from [Releases](https://github.com/jackeycui7/prediction-sk
 # Unlock wallet (24-hour session)
 export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
 
-# Optional: specify coordinator URL (default: https://api.predict.awp.sh)
-export PREDICT_SERVER_URL=https://api.predict.awp.sh
+# Optional: specify coordinator URL (default: https://predict-server-production-fe90.up.railway.app)
+export PREDICT_SERVER_URL=https://predict-server-production-fe90.up.railway.app
 ```
 
 ### 4. Verify

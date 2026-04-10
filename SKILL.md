@@ -11,7 +11,7 @@ requirements:
   - predict-agent (Rust binary)
   - awp-wallet
 env:
-  - PREDICT_SERVER_URL (optional, default: https://api.predict.awp.sh)
+  - PREDICT_SERVER_URL (optional, default: https://predict-server-production-fe90.up.railway.app)
 ---
 
 # Predict WorkNet Skill
