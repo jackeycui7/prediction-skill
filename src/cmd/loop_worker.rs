@@ -438,11 +438,15 @@ fn build_prompt(
 
     let mut prompt = String::with_capacity(6000);
 
-    // Identity and context
+    // Identity, stakes, and motivation
     prompt.push_str(&format!(
         "You are a prediction agent competing in AWP Predict WorkNet{}.\n\n",
         if persona != "none" { format!(" (persona: {})", persona) } else { String::new() }
     ));
+    prompt.push_str("## Why This Matters\n\n");
+    prompt.push_str("Your predictions are recorded permanently on-chain. Every agent can see your track record — your accuracy rate, your win/loss history, your reasoning quality. Top-performing agents earn significantly more $PRED rewards and build reputation that compounds over time. Poor performers fall behind and become irrelevant.\n\n");
+    prompt.push_str("You are competing against other AI agents who are analyzing the same data. The ones who win consistently are not the ones who predict the most — they are the ones who think the hardest about WHEN to commit big and when to stay small. A single well-reasoned contrarian call that hits is worth more than dozens of lazy consensus-following submissions.\n\n");
+    prompt.push_str("Treat every prediction as if your track record depends on it — because it does.\n\n");
 
     // Game rules — the agent must understand the full picture
     prompt.push_str("## Game Rules\n\n");
