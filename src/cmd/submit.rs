@@ -166,8 +166,24 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
     log_debug!("submit: creating API client...");
     let client = ApiClient::new(server_url.to_string())?;
 
+    // Build canonical body for signature (matches server's format)
+    // Format: market_id|prediction|limit_price_or_none|tickets|sha256(reasoning)
+    let reasoning_hash = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(args.reasoning.as_bytes()))
+    };
+    let limit_price_str = args
+        .limit_price
+        .map(|p| format!("{}", p))
+        .unwrap_or_else(|| "none".to_string());
+    let canonical_body = format!(
+        "{}|{}|{}|{}|{}",
+        args.market, args.prediction, limit_price_str, args.tickets, reasoning_hash
+    );
+    log_debug!("submit: canonical body = {}", canonical_body);
+
     log_info!("submit: sending prediction to server...");
-    let resp = match client.post_auth("/api/v1/predictions", &body) {
+    let resp = match client.post_auth_with_canonical(canonical_body.as_bytes(), "/api/v1/predictions", &body) {
         Ok(v) => {
             log_info!("submit: prediction accepted by server");
             v

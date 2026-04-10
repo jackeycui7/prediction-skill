@@ -84,20 +84,35 @@ impl ApiClient {
     }
 
     /// POST an authenticated endpoint with a JSON body.
+    /// Signs using the JSON bytes directly (for simple endpoints).
     pub fn post_auth(&self, path: &str, body: &Value) -> Result<Value> {
         // Serialize body to compute hash before signing
         let body_bytes = serde_json::to_vec(body).context("Failed to serialize request body")?;
-        let auth = build_auth_headers(&self.address, "POST", path, &body_bytes)?;
+        self.post_auth_with_canonical(&body_bytes, path, body)
+    }
+
+    /// POST an authenticated endpoint with a canonical body for signing.
+    /// `canonical_body` is used for the signature hash, `json_body` is sent to the server.
+    /// Use this when the server expects a specific canonical format for signature verification.
+    pub fn post_auth_with_canonical(
+        &self,
+        canonical_body: &[u8],
+        path: &str,
+        json_body: &Value,
+    ) -> Result<Value> {
+        let auth = build_auth_headers(&self.address, "POST", path, canonical_body)?;
         let url = format!("{}{}", self.base_url, path);
         log_debug!(
-            "POST {} (auth: address={}, timestamp={}, body_keys={:?})",
+            "POST {} (auth: address={}, timestamp={}, canonical_len={}, body_keys={:?})",
             url,
             auth.address,
             auth.timestamp,
-            body.as_object().map(|o| o.keys().collect::<Vec<_>>())
+            canonical_body.len(),
+            json_body.as_object().map(|o| o.keys().collect::<Vec<_>>())
         );
         let start = Instant::now();
 
+        let json_bytes = serde_json::to_vec(json_body).context("Failed to serialize request body")?;
         let resp = self
             .client
             .post(&url)
@@ -105,7 +120,7 @@ impl ApiClient {
             .header("X-AWP-Timestamp", &auth.timestamp)
             .header("X-AWP-Signature", &auth.signature)
             .header("Content-Type", "application/json")
-            .body(body_bytes)
+            .body(json_bytes)
             .send()
             .context(format!(
                 "POST {} failed: network error (is the coordinator running at {}?)",
