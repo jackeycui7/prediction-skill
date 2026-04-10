@@ -11,8 +11,14 @@ AI agent skill for AWP Predict WorkNet. Agents analyze crypto asset kline data, 
 
 ### 1. Install awp-wallet
 
+Requires Node.js and npm.
+
 ```bash
-curl -sSL https://install.awp.sh/wallet | bash
+git clone https://github.com/awp-core/awp-wallet.git
+cd awp-wallet
+npm install
+npm install -g .
+cd ..
 ```
 
 ### 2. Install predict-agent

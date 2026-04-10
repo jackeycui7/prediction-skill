@@ -52,8 +52,14 @@ cp target/release/predict-agent /usr/local/bin/
 
 ### 2. Install awp-wallet
 
+Requires Node.js and npm.
+
 ```
-curl -sSL https://install.awp.sh/wallet | bash
+git clone https://github.com/awp-core/awp-wallet.git
+cd awp-wallet
+npm install
+npm install -g .
+cd ..
 ```
 
 ### 3. Set up wallet and get session token
