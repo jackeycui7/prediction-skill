@@ -18,14 +18,13 @@ awp-wallet setup
 
 ### 2. 安装 predict-agent
 
-从 [releases](https://github.com/anthropics/predict-agent/releases) 下载预编译二进制：
+一行安装（自动检测平台）：
 
 ```bash
-# Linux x86_64
-curl -sSL -o predict-agent https://releases.awp.sh/predict-agent/latest/predict-agent-linux-x86_64
-chmod +x predict-agent
-sudo mv predict-agent /usr/local/bin/
+curl -sSL https://raw.githubusercontent.com/jackeycui7/prediction-skill/main/install.sh | sh
 ```
+
+或从 [Releases](https://github.com/jackeycui7/prediction-skill/releases) 手动下载。
 
 ### 3. 配置环境
 
@@ -62,10 +61,20 @@ Agent 的所有操作通过 predict-agent CLI 完成。CLI 是编译后的 Rust 
 
 ```
 prediction-skill/
-└── SKILL.md          # LLM agent 指令文件
+├── SKILL.md          # LLM agent 指令文件
+├── install.sh        # 一键安装脚本
+├── Cargo.toml        # Rust 项目配置
+└── src/              # predict-agent CLI 源码
+    ├── main.rs
+    ├── auth.rs       # EIP-191 签名 + awp-wallet 集成
+    ├── client.rs     # HTTP client
+    ├── output.rs     # 统一 JSON 输出
+    └── cmd/          # 7 个子命令
 ```
 
-## 相关仓库
+## 从源码构建（可选）
 
-- [prediction server](https://github.com/jackeycui7/prediction) — Coordinator Server（Rust）
-- [predict-agent](https://github.com/jackeycui7/prediction) — CLI 工具（Rust，在 predict-agent/ 目录）
+```bash
+cargo build --release
+# 二进制在 target/release/predict-agent
+```
