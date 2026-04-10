@@ -146,6 +146,30 @@ fn sign_with_wallet(addr_lower: &str, timestamp: &str) -> Result<String> {
         "awp-wallet returned invalid JSON. Raw output: {}",
         stdout.trim()
     ))?;
+
+    // Check that signing key matches expected address
+    if let Some(signer) = v["signer"].as_str() {
+        let signer_lower = signer.to_lowercase();
+        if signer_lower != addr_lower {
+            log_error!(
+                "WALLET MISMATCH: receive returned {} but sign-message used {}",
+                addr_lower,
+                signer_lower
+            );
+            bail!(
+                "Wallet address mismatch detected!\n\
+                 receive returned:    {}\n\
+                 sign-message used:   {}\n\n\
+                 This usually means AWP_AGENT_ID or AWP_SESSION_ID changed between calls,\n\
+                 causing different wallets to be used. Make sure these env vars are stable.\n\
+                 Try: unset AWP_AGENT_ID AWP_SESSION_ID && predict-agent preflight",
+                addr_lower,
+                signer_lower
+            );
+        }
+        log_debug!("Signer address verified: {}", signer_lower);
+    }
+
     let sig = v["signature"]
         .as_str()
         .context(format!(

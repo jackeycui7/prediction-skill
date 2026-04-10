@@ -201,12 +201,20 @@ pub fn run(server_url: &str) -> Result<()> {
         }
         Err(e) => {
             log_error!("preflight [4/4]: auth failed: {}", e);
+            let wallet_id = std::env::var("AWP_SESSION_ID")
+                .or_else(|_| std::env::var("AWP_AGENT_ID"))
+                .unwrap_or_else(|_| "default".to_string());
+            let hint = if e.to_string().contains("Wallet address mismatch") {
+                "AWP_AGENT_ID or AWP_SESSION_ID may have changed. Try: unset AWP_AGENT_ID AWP_SESSION_ID"
+            } else {
+                "Check your wallet configuration and ensure the timestamp is fresh."
+            };
             Output::error_with_debug(
                 format!("Failed to fetch agent status: {e}"),
                 "AUTH_FAILED",
                 "auth",
                 false,
-                "Check your wallet configuration and ensure the timestamp is fresh.",
+                hint,
                 json!({
                     "step": "4_auth_check",
                     "address": address,
@@ -216,6 +224,9 @@ pub fn run(server_url: &str) -> Result<()> {
                     "signing_mode": if std::env::var("AWP_PRIVATE_KEY").is_ok() { "private_key" }
                         else if is_dev { "dev_mode" }
                         else { "awp_wallet" },
+                    "wallet_id": wallet_id,
+                    "env_AWP_SESSION_ID": std::env::var("AWP_SESSION_ID").ok(),
+                    "env_AWP_AGENT_ID": std::env::var("AWP_AGENT_ID").ok(),
                 }),
                 Internal {
                     next_action: "configure_wallet".into(),
@@ -259,6 +270,11 @@ pub fn run(server_url: &str) -> Result<()> {
         balance
     );
 
+    // Capture wallet isolation context for debugging
+    let wallet_id = std::env::var("AWP_SESSION_ID")
+        .or_else(|_| std::env::var("AWP_AGENT_ID"))
+        .unwrap_or_else(|_| "default".to_string());
+
     Output::success(
         format!(
             "Ready. {} open markets. {} total predictions. Balance: {} chips.",
@@ -270,6 +286,7 @@ pub fn run(server_url: &str) -> Result<()> {
             "open_markets": open_markets,
             "total_predictions": total_predictions,
             "balance": balance,
+            "wallet_id": wallet_id,
         }),
         Internal {
             next_action: "fetch_context".into(),
