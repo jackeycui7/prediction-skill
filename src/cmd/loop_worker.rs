@@ -171,7 +171,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         }
     };
 
-    // 2. Fetch agent status
+    // 2. Fetch agent status (includes timeslot, open_orders, recent_results)
     let status = match client.get_auth("/api/v1/agents/me/status") {
         Ok(v) => v,
         Err(e) => {
@@ -189,79 +189,110 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         .get("persona")
         .and_then(|v| v.as_str())
         .unwrap_or("none");
-    log_debug!("loop: balance={:.0}, persona={}", balance, persona);
 
-    // 3. Fetch active markets
-    let markets_resp = match client.get("/api/v1/markets/active") {
-        Ok(v) => v,
+    // 3. Check timeslot — skip LLM entirely if no submissions remaining
+    let timeslot = agent_data.get("timeslot");
+    let submissions_remaining = timeslot
+        .and_then(|t| t.get("submissions_remaining"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(3); // default to 3 if server doesn't return timeslot yet
+    let slot_resets_in = timeslot
+        .and_then(|t| t.get("slot_resets_in_seconds"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(300);
+    let submissions_used = timeslot
+        .and_then(|t| t.get("submissions_used"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    log_info!(
+        "loop: balance={:.0}, persona={}, timeslot={}/{} used, resets in {}s",
+        balance, persona, submissions_used,
+        timeslot.and_then(|t| t.get("slot_limit")).and_then(|v| v.as_i64()).unwrap_or(3),
+        slot_resets_in
+    );
+
+    if submissions_remaining <= 0 {
+        log_info!("loop: no submissions remaining in this timeslot, waiting {}s for reset", slot_resets_in);
+        return IterationResult::RateLimited {
+            wait_seconds: slot_resets_in.max(10),
+        };
+    }
+
+    // Extract open_orders and recent_results for LLM context
+    let open_orders = agent_data.get("open_orders").and_then(|v| v.as_array()).cloned();
+    let recent_results = agent_data.get("recent_results").and_then(|v| v.as_array()).cloned();
+
+    // 4. Fetch smart market recommendations from server
+    let recommendations = match client.get_auth("/api/v1/markets/recommend") {
+        Ok(v) => v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default(),
         Err(e) => {
-            return IterationResult::Error {
-                reason: format!("markets fetch failed: {e}"),
-            }
+            log_warn!("loop: recommend endpoint failed ({}), falling back to active markets", e);
+            Vec::new()
         }
     };
-    let markets = markets_resp
-        .get("data")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
 
-    // 4. Fetch my predictions to find submitted markets
-    let my_preds: Vec<String> = client
-        .get_auth("/api/v1/predictions/me?limit=200")
-        .ok()
-        .and_then(|v| v.get("data").and_then(|d| d.as_array()).cloned())
-        .unwrap_or_default()
+    // Filter to actionable recommendations (action != "skip", score > 0)
+    let actionable: Vec<&Value> = recommendations
         .iter()
-        .filter_map(|p| p.get("market_id").and_then(|m| m.as_str()).map(str::to_string))
-        .collect();
-
-    // 5. Find submittable markets (not submitted, >120s remaining)
-    let now = chrono::Utc::now();
-    let mut submittable: Vec<Value> = markets
-        .iter()
-        .filter_map(|m| {
-            let id = m.get("id")?.as_str()?;
-            let close_at_str = m.get("close_at")?.as_str()?;
-            let close_at: chrono::DateTime<chrono::Utc> = close_at_str.parse().ok()?;
-            let closes_in = (close_at - now).num_seconds();
-            if closes_in < 120 || my_preds.contains(&id.to_string()) {
-                return None;
-            }
-            let up = m.get("up_tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
-            let down = m.get("down_tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
-            let total = up + down;
-            let implied_up = if total > 0 { up as f64 / total as f64 } else { 0.5 };
-            Some(json!({
-                "id": id,
-                "asset": m.get("asset").and_then(|v| v.as_str()).unwrap_or(""),
-                "window": m.get("window").and_then(|v| v.as_str()).unwrap_or(""),
-                "closes_in_seconds": closes_in,
-                "implied_up_prob": (implied_up * 100.0).round() / 100.0,
-                "up_tickets": up,
-                "down_tickets": down,
-                "participant_count": m.get("participant_count").and_then(|v| v.as_i64()).unwrap_or(0),
-            }))
+        .filter(|r| {
+            r.get("action").and_then(|a| a.as_str()) != Some("skip")
         })
         .collect();
 
-    if submittable.is_empty() {
+    // If no recommendations, fall back to active markets
+    let (market_id, market_info) = if !actionable.is_empty() {
+        let top = actionable[0];
+        let id = top.get("market_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        log_info!(
+            "loop: server recommends {} (score={}, reason={})",
+            id,
+            top.get("score").and_then(|v| v.as_i64()).unwrap_or(0),
+            top.get("reason").and_then(|v| v.as_str()).unwrap_or("?")
+        );
+        (id, top.clone())
+    } else {
+        // Fallback: fetch active markets and pick first submittable
+        log_debug!("loop: no server recommendations, falling back to active markets");
+        let markets_resp = match client.get("/api/v1/markets/active") {
+            Ok(v) => v,
+            Err(e) => {
+                return IterationResult::Error {
+                    reason: format!("markets fetch failed: {e}"),
+                }
+            }
+        };
+        let markets = markets_resp
+            .get("data")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        if markets.is_empty() {
+            return IterationResult::NoMarkets { wait_seconds: 300 };
+        }
+
+        let now = chrono::Utc::now();
+        let first = markets.iter().find(|m| {
+            let close_at = m.get("close_at")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
+            close_at.map(|c| (c - now).num_seconds() > 120).unwrap_or(false)
+        });
+        match first {
+            Some(m) => {
+                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                (id, m.clone())
+            }
+            None => return IterationResult::NoMarkets { wait_seconds: 300 },
+        }
+    };
+
+    if market_id.is_empty() {
         return IterationResult::NoMarkets { wait_seconds: 300 };
     }
 
-    // Sort by closes_in ascending
-    submittable.sort_by_key(|m| {
-        m.get("closes_in_seconds")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(i64::MAX)
-    });
-
-    log_info!("loop: {} submittable markets", submittable.len());
-
-    // 6. Pick recommended market and fetch klines
-    let recommended = &submittable[0];
-    let market_id = recommended["id"].as_str().unwrap().to_string();
-
+    // 5. Fetch klines for the chosen market
     let klines_data = client
         .get(&format!("/api/v1/markets/{}/klines", market_id))
         .ok()
@@ -273,16 +304,19 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         });
 
     let kline_count = klines_data.as_ref().map(|k| k.len()).unwrap_or(0);
-    log_info!("loop: recommended={}, klines={} candles", market_id, kline_count);
+    log_info!("loop: target={}, klines={} candles", market_id, kline_count);
 
-    // 7. Build LLM prompt
+    // 6. Build LLM prompt with full context
     let prompt = build_prompt(
         &market_id,
-        recommended,
+        &market_info,
         &klines_data,
-        &submittable,
+        &recommendations,
         balance,
         persona,
+        submissions_remaining,
+        &open_orders,
+        &recent_results,
     );
 
     // 8. Call LLM via OpenClaw
@@ -315,12 +349,15 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         }
     };
 
-    // Use target market from LLM if valid, otherwise use recommended
+    // Use target market from LLM if provided, otherwise use recommended
     let final_market = if let Some(ref tm) = target_market {
-        if submittable.iter().any(|m| m["id"].as_str() == Some(tm.as_str())) {
+        if recommendations.iter().any(|m| {
+            m.get("market_id").and_then(|v| v.as_str()) == Some(tm.as_str())
+                || m.get("id").and_then(|v| v.as_str()) == Some(tm.as_str())
+        }) {
             tm.clone()
         } else {
-            log_warn!("loop: LLM suggested market {} not in submittable list, using {}", tm, market_id);
+            log_warn!("loop: LLM suggested market {} not in available list, using {}", tm, market_id);
             market_id.clone()
         }
     } else {
@@ -384,11 +421,20 @@ fn build_prompt(
     all_markets: &[Value],
     balance: f64,
     persona: &str,
+    submissions_remaining: i64,
+    open_orders: &Option<Vec<Value>>,
+    recent_results: &Option<Vec<Value>>,
 ) -> String {
-    let asset = recommended["asset"].as_str().unwrap_or("BTC/USDT");
-    let window = recommended["window"].as_str().unwrap_or("15m");
-    let implied_up = recommended["implied_up_prob"].as_f64().unwrap_or(0.5);
-    let closes_in = recommended["closes_in_seconds"].as_i64().unwrap_or(0);
+    // Extract market info — support both direct market object and recommend response format
+    let asset = recommended.get("asset").and_then(|v| v.as_str()).unwrap_or("BTC/USDT");
+    let window = recommended.get("window").and_then(|v| v.as_str()).unwrap_or("15m");
+    let implied_up = recommended.get("implied_up_prob")
+        .or_else(|| recommended.get("orderbook").and_then(|o| o.get("implied_up_prob")))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5);
+    let closes_in = recommended.get("closes_in_seconds")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
 
     let mut prompt = String::with_capacity(6000);
 
@@ -430,10 +476,54 @@ fn build_prompt(
     prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\")\n\n", market_id));
     prompt.push_str("Output ONLY the JSON. No markdown fences, no text outside the JSON.\n\n");
 
-    // Current state
+    // Current state with timeslot
     prompt.push_str("## Your Current State\n\n");
     prompt.push_str(&format!("- Balance: {:.0} chips\n", balance));
-    prompt.push_str(&format!("- Available markets: {}\n\n", all_markets.len()));
+    prompt.push_str(&format!("- Submissions remaining this timeslot: {}/3\n", submissions_remaining));
+    prompt.push_str(&format!("- Available markets: {}\n", all_markets.len()));
+
+    // Open positions
+    if let Some(orders) = open_orders {
+        if !orders.is_empty() {
+            prompt.push_str(&format!("\n**Your open positions ({}):**\n", orders.len()));
+            for o in orders.iter().take(10) {
+                prompt.push_str(&format!(
+                    "- {} {} {} — {} tickets (filled {}), closes {}\n",
+                    o.get("asset").and_then(|v| v.as_str()).unwrap_or("?"),
+                    o.get("window").and_then(|v| v.as_str()).unwrap_or("?"),
+                    o.get("direction").and_then(|v| v.as_str()).unwrap_or("?").to_uppercase(),
+                    o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0),
+                    o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0),
+                    o.get("close_at").and_then(|v| v.as_str()).unwrap_or("?"),
+                ));
+            }
+        }
+    }
+
+    // Recent results
+    if let Some(results) = recent_results {
+        if !results.is_empty() {
+            let wins = results.iter().filter(|r| r.get("won").and_then(|v| v.as_bool()).unwrap_or(false)).count();
+            prompt.push_str(&format!(
+                "\n**Recent results (last {}, {} wins):**\n",
+                results.len(),
+                wins
+            ));
+            for r in results.iter().take(5) {
+                let won = r.get("won").and_then(|v| v.as_bool()).unwrap_or(false);
+                prompt.push_str(&format!(
+                    "- {} {} {} — {} (payout: {}, spent: {})\n",
+                    r.get("asset").and_then(|v| v.as_str()).unwrap_or("?"),
+                    r.get("window").and_then(|v| v.as_str()).unwrap_or("?"),
+                    r.get("direction").and_then(|v| v.as_str()).unwrap_or("?").to_uppercase(),
+                    if won { "WON" } else { "LOST" },
+                    r.get("payout_chips").and_then(|v| v.as_i64()).unwrap_or(0),
+                    r.get("chips_spent").and_then(|v| v.as_i64()).unwrap_or(0),
+                ));
+            }
+        }
+    }
+    prompt.push('\n');
 
     // Recommended market
     prompt.push_str("## Recommended Market\n\n");
@@ -442,6 +532,25 @@ fn build_prompt(
     prompt.push_str(&format!("- Window: {}\n", window));
     prompt.push_str(&format!("- Closes in: {}s\n", closes_in));
     prompt.push_str(&format!("- implied_up_prob: {:.2}\n", implied_up));
+    // Server recommendation context
+    if let Some(reason) = recommended.get("reason").and_then(|v| v.as_str()) {
+        prompt.push_str(&format!("- Server insight: {}\n", reason));
+    }
+    if let Some(suggested) = recommended.get("suggested_side").and_then(|v| v.as_str()) {
+        if suggested != "skip" {
+            prompt.push_str(&format!("- Liquidity favors: {} (counterparty orders waiting)\n", suggested.to_uppercase()));
+        }
+    }
+    // Orderbook detail
+    if let Some(ob) = recommended.get("orderbook") {
+        prompt.push_str(&format!(
+            "- Orderbook: UP filled={} open={}, DOWN filled={} open={}\n",
+            ob.get("up_filled").and_then(|v| v.as_i64()).unwrap_or(0),
+            ob.get("up_open").and_then(|v| v.as_i64()).unwrap_or(0),
+            ob.get("down_filled").and_then(|v| v.as_i64()).unwrap_or(0),
+            ob.get("down_open").and_then(|v| v.as_i64()).unwrap_or(0),
+        ));
+    }
     // Explain the odds concretely
     if implied_up > 0.5 {
         prompt.push_str(&format!(
@@ -486,21 +595,22 @@ fn build_prompt(
         prompt.push_str("## Klines\n\nNo kline data available. Use market data and general market awareness.\n\n");
     }
 
-    // Other available markets
+    // Other available markets from server recommendations
     if all_markets.len() > 1 {
-        prompt.push_str("## Other Available Markets\n\n");
+        prompt.push_str("## Other Markets (server-ranked)\n\n");
         for m in all_markets.iter().skip(1).take(8) {
-            let m_implied = m["implied_up_prob"].as_f64().unwrap_or(0.5);
+            let reason = m.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+            let suggested = m.get("suggested_side").and_then(|v| v.as_str()).unwrap_or("?");
+            let score = m.get("score").and_then(|v| v.as_i64()).unwrap_or(0);
+            let mid = m.get("market_id").or_else(|| m.get("id")).and_then(|v| v.as_str()).unwrap_or("?");
+            let masset = m.get("asset").and_then(|v| v.as_str()).unwrap_or("?");
+            let mwindow = m.get("window").and_then(|v| v.as_str()).unwrap_or("?");
             prompt.push_str(&format!(
-                "- {} ({} {}) implied_up={:.2} closes_in={}s\n",
-                m["id"].as_str().unwrap_or("?"),
-                m["asset"].as_str().unwrap_or("?"),
-                m["window"].as_str().unwrap_or("?"),
-                m_implied,
-                m["closes_in_seconds"].as_i64().unwrap_or(0),
+                "- {} ({} {}) score={} suggested={} — {}\n",
+                mid, masset, mwindow, score, suggested, reason
             ));
         }
-        prompt.push_str("\nYou may choose a different market if you see better odds or stronger conviction.\n\n");
+        prompt.push_str("\nYou may choose a different market by setting \"market_id\" in your response.\n\n");
     }
 
     prompt
