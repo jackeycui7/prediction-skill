@@ -10,6 +10,7 @@ trigger_keywords:
 requirements:
   - predict-agent (Rust binary)
   - awp-wallet
+  - openclaw (for background loop mode)
 env:
   - PREDICT_SERVER_URL (optional, default: https://predict-server-production-fe90.up.railway.app)
 ---
@@ -82,13 +83,17 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 
 ### Background Loop (Preferred)
 
+**Requires OpenClaw CLI.** If `openclaw` is not installed, install it first: https://docs.openclaw.com/install
+
 After setup and preflight pass, start the background prediction loop:
 
 ```
 predict-agent loop --interval 120 --agent-id predict-worker
 ```
 
-This runs continuously: fetches markets → calls your LLM (via OpenClaw) to analyze klines → submits predictions → sleeps → repeats. The loop handles error recovery, rate limit backoff, and graceful shutdown (Ctrl+C).
+This runs continuously: fetches markets → calls LLM (via OpenClaw) to analyze klines → submits predictions → sleeps → repeats. The loop handles error recovery, rate limit backoff, and graceful shutdown (Ctrl+C).
+
+**You SHOULD use the loop mode** — it handles all the complexity for you. Manual mode is only for debugging or when OpenClaw is unavailable.
 
 Options:
 - `--interval 120` — seconds between rounds (default: 120)
