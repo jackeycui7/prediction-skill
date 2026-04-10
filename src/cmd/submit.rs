@@ -385,6 +385,14 @@ fn parse_server_error(err: &str) -> (String, String, bool, String) {
             "Write completely new analysis. Do not reuse or rephrase previous reasoning.".into(),
         );
     }
+    if err.contains("SERVICE_UNAVAILABLE") || err.contains("503") {
+        return (
+            "SERVICE_UNAVAILABLE".into(),
+            "dependency".into(),
+            true,
+            "Server dependency temporarily down. Wait a few seconds and retry.".into(),
+        );
+    }
 
     (
         "SUBMISSION_FAILED".into(),

@@ -128,6 +128,7 @@ When a command returns `ok: false`, the error object tells you exactly what happ
 | `REASONING_TOO_SHORT` | Expand your reasoning to at least 80 characters and 2 sentences. |
 | `REASONING_DUPLICATE` | Write completely new analysis. Do not reuse or rephrase previous reasoning. |
 | `AUTH_FAILED` | Wallet issue. Run `predict-agent preflight` to diagnose. |
+| `SERVICE_UNAVAILABLE` | Server dependency temporarily down. Wait a few seconds and retry. |
 | `COORDINATOR_UNREACHABLE` | Network issue. Wait 30 seconds, then retry `predict-agent preflight`. |
 | `AWP_NOT_REGISTERED` | Wallet token needed. Run `awp-wallet unlock --duration 86400 --scope full`. |
 | `AWP_REGISTRATION_PENDING` | Wait and retry preflight. Registration is being confirmed. |
