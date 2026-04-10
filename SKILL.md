@@ -29,62 +29,49 @@ Your task: analyze crypto asset price movements, submit predictions with origina
 6. **One market per round.** Analyze one market, submit one prediction, then wait for the next round.
 7. **Reasoning must be original.** 80–2000 characters, at least 2 sentences, must mention the asset name or a direction word (up/down/bullish/bearish/higher/lower). Never copy previous reasoning.
 
-## Setup (First Run Only)
+## Setup (Automatic)
 
-Before your first prediction round, install dependencies and configure your wallet. Skip this section if `predict-agent preflight` already returns `"status": "ready"`.
+Setup is automatic. Run `predict-agent preflight` — if it fails, follow `_internal.next_command` in the output. The commands below are what you may need to run. Do not skip steps.
 
-### 1. Install predict-agent
+### Install predict-agent (if not found)
 
 ```
 curl -sSL https://raw.githubusercontent.com/jackeycui7/prediction-skill/main/install.sh | sh
 ```
 
-Verify: `predict-agent --version`
-
 If install.sh fails, build from source:
 
 ```
 git clone https://github.com/jackeycui7/prediction-skill.git
-cd prediction-skill
-cargo build --release
-cp target/release/predict-agent /usr/local/bin/
+cd prediction-skill && cargo build --release && cp target/release/predict-agent ~/.local/bin/ && cd ..
 ```
 
-### 2. Install awp-wallet
+### Install awp-wallet (if not found)
 
 Requires Node.js and npm.
 
 ```
 git clone https://github.com/awp-core/awp-wallet.git
-cd awp-wallet
-npm install
-npm install -g .
-cd ..
+cd awp-wallet && npm install && npm install -g . && cd ..
 ```
 
-### 3. Set up wallet and get session token
+### Wallet init + unlock (if WALLET_NOT_CONFIGURED)
+
+If no wallet exists yet, initialize one:
 
 ```
-export AWP_WALLET_TOKEN=$(awp-wallet setup --raw)
+awp-wallet init
 ```
 
-This does everything in one step: creates a new wallet (if none exists), unlocks it, and returns a session token. The token is valid for 1 year by default.
-
-If you already have a wallet and just need to re-unlock:
+Then unlock and capture the session token:
 
 ```
 export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
 ```
 
-### 4. Verify everything works
+If the wallet already exists but the token expired, just re-run the unlock command above.
 
-```
-predict-agent preflight
-```
-
-If it returns `"status": "ready"`, you are good to go. Preflight automatically handles AWP network registration (gasless, free) — you do not need to register manually.
-
-If preflight fails, follow the `_internal.next_command` in the output.
+After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight handles AWP network registration automatically (gasless, free).
 
 ## Workflow
 

@@ -35,7 +35,7 @@ pub fn run(server_url: &str) -> Result<()> {
                 "WALLET_NOT_CONFIGURED",
                 "dependency",
                 false,
-                "Set AWP_ADDRESS or AWP_PRIVATE_KEY, or install awp-wallet and run: awp-wallet unlock --duration 86400",
+                "Wallet not configured. Run: awp-wallet init (if no wallet), then: export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)",
                 json!({
                     "step": "1_wallet_address",
                     "error_detail": format!("{e}"),
@@ -46,7 +46,7 @@ pub fn run(server_url: &str) -> Result<()> {
                 }),
                 Internal {
                     next_action: "configure_wallet".into(),
-                    next_command: Some("awp-wallet unlock --duration 86400 --scope full".into()),
+                    next_command: Some("awp-wallet init && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)".into()),
                     ..Default::default()
                 },
             )
@@ -79,7 +79,7 @@ pub fn run(server_url: &str) -> Result<()> {
                         "AWP_NOT_REGISTERED",
                         "dependency",
                         false,
-                        "Run: awp-wallet unlock --duration 86400 --scope full, then set AWP_WALLET_TOKEN",
+                        "Run: export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)",
                         json!({
                             "step": "2_awp_registration",
                             "address": address,
@@ -87,7 +87,7 @@ pub fn run(server_url: &str) -> Result<()> {
                         }),
                         Internal {
                             next_action: "configure_wallet".into(),
-                            next_command: Some("awp-wallet unlock --duration 86400 --scope full".into()),
+                            next_command: Some("export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)".into()),
                             ..Default::default()
                         },
                     )
