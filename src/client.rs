@@ -55,7 +55,8 @@ impl ApiClient {
 
     /// GET an authenticated endpoint.
     pub fn get_auth(&self, path: &str) -> Result<Value> {
-        let auth = build_auth_headers(&self.address)?;
+        // GET requests have empty body
+        let auth = build_auth_headers(&self.address, "GET", path, &[])?;
         let url = format!("{}{}", self.base_url, path);
         log_debug!(
             "GET {} (auth: address={}, timestamp={})",
@@ -84,7 +85,9 @@ impl ApiClient {
 
     /// POST an authenticated endpoint with a JSON body.
     pub fn post_auth(&self, path: &str, body: &Value) -> Result<Value> {
-        let auth = build_auth_headers(&self.address)?;
+        // Serialize body to compute hash before signing
+        let body_bytes = serde_json::to_vec(body).context("Failed to serialize request body")?;
+        let auth = build_auth_headers(&self.address, "POST", path, &body_bytes)?;
         let url = format!("{}{}", self.base_url, path);
         log_debug!(
             "POST {} (auth: address={}, timestamp={}, body_keys={:?})",
@@ -101,7 +104,8 @@ impl ApiClient {
             .header("X-AWP-Address", &auth.address)
             .header("X-AWP-Timestamp", &auth.timestamp)
             .header("X-AWP-Signature", &auth.signature)
-            .json(body)
+            .header("Content-Type", "application/json")
+            .body(body_bytes)
             .send()
             .context(format!(
                 "POST {} failed: network error (is the coordinator running at {}?)",

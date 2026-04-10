@@ -22,14 +22,28 @@ pub struct AuthHeaders {
 }
 
 /// Build auth headers for a request. Timestamp is freshly generated.
-pub fn build_auth_headers(address: &str) -> Result<AuthHeaders> {
+/// The signature now includes method, path, and body_hash to prevent replay attacks.
+pub fn build_auth_headers(
+    address: &str,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Result<AuthHeaders> {
     let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    // Compute SHA-256 hash of body (matches server's body_hash computation)
+    use sha2::{Digest as Sha2Digest, Sha256};
+    let body_hash = hex::encode(Sha256::digest(body));
+
     log_debug!(
-        "Building auth headers: address={}, timestamp={}",
+        "Building auth headers: address={}, method={}, path={}, body_hash={}, timestamp={}",
         address,
+        method,
+        path,
+        &body_hash[..16],
         timestamp
     );
-    let signature = sign_message(address, &timestamp)?;
+    let signature = sign_message(address, &timestamp, method, path, &body_hash)?;
     log_debug!("Auth signature generated: {}...{}", &signature[..8.min(signature.len())], &signature[signature.len().saturating_sub(6)..]);
     Ok(AuthHeaders {
         address: address.to_string(),
@@ -38,14 +52,20 @@ pub fn build_auth_headers(address: &str) -> Result<AuthHeaders> {
     })
 }
 
-fn sign_message(address: &str, timestamp: &str) -> Result<String> {
+fn sign_message(
+    address: &str,
+    timestamp: &str,
+    method: &str,
+    path: &str,
+    body_hash: &str,
+) -> Result<String> {
     let addr_lower = address.to_lowercase();
 
     // Mode 1: direct private key
     if std::env::var("AWP_PRIVATE_KEY").is_ok() {
         log_debug!("Signing mode: AWP_PRIVATE_KEY (direct ECDSA)");
         let pk_hex = std::env::var("AWP_PRIVATE_KEY").unwrap();
-        return sign_with_key(&pk_hex, &addr_lower, timestamp);
+        return sign_with_key(&pk_hex, &addr_lower, timestamp, method, path, body_hash);
     }
 
     // Mode 2: dev mode bypass
@@ -58,18 +78,29 @@ fn sign_message(address: &str, timestamp: &str) -> Result<String> {
 
     // Mode 3: awp-wallet subprocess
     log_debug!("Signing mode: awp-wallet subprocess");
-    sign_with_wallet(&addr_lower, timestamp)
+    sign_with_wallet(&addr_lower, timestamp, method, path, body_hash)
 }
 
-fn sign_with_key(pk_hex: &str, addr_lower: &str, timestamp: &str) -> Result<String> {
+fn sign_with_key(
+    pk_hex: &str,
+    addr_lower: &str,
+    timestamp: &str,
+    method: &str,
+    path: &str,
+    body_hash: &str,
+) -> Result<String> {
     let pk_hex = pk_hex.strip_prefix("0x").unwrap_or(pk_hex);
     let pk_bytes = hex::decode(pk_hex).context("Invalid AWP_PRIVATE_KEY hex — must be a valid hex string (with or without 0x prefix)")?;
     let signing_key = SigningKey::from_slice(&pk_bytes)
         .context("Invalid private key bytes — expected 32-byte secp256k1 private key")?;
 
     let message = format!(
-        "AWP Predict WorkNet\nAddress: {}\nTimestamp: {}",
-        addr_lower, timestamp
+        "AWP Predict WorkNet\nAddress: {}\nTimestamp: {}\nMethod: {}\nPath: {}\nBody-Hash: {}",
+        addr_lower,
+        timestamp,
+        method.to_uppercase(),
+        path,
+        body_hash
     );
     log_debug!("EIP-191 message to sign:\n{}", message);
 
@@ -89,7 +120,13 @@ fn sign_with_key(pk_hex: &str, addr_lower: &str, timestamp: &str) -> Result<Stri
     Ok(format!("0x{}", hex::encode(sig_bytes)))
 }
 
-fn sign_with_wallet(addr_lower: &str, timestamp: &str) -> Result<String> {
+fn sign_with_wallet(
+    addr_lower: &str,
+    timestamp: &str,
+    method: &str,
+    path: &str,
+    body_hash: &str,
+) -> Result<String> {
     let token = std::env::var("AWP_WALLET_TOKEN").context(
         "AWP_WALLET_TOKEN not set. You need to unlock your wallet first.\n\
          Run: awp-wallet unlock --duration 86400 --scope full\n\
@@ -98,8 +135,12 @@ fn sign_with_wallet(addr_lower: &str, timestamp: &str) -> Result<String> {
     log_debug!("AWP_WALLET_TOKEN present (length={})", token.len());
 
     let message = format!(
-        "AWP Predict WorkNet\nAddress: {}\nTimestamp: {}",
-        addr_lower, timestamp
+        "AWP Predict WorkNet\nAddress: {}\nTimestamp: {}\nMethod: {}\nPath: {}\nBody-Hash: {}",
+        addr_lower,
+        timestamp,
+        method.to_uppercase(),
+        path,
+        body_hash
     );
     log_debug!("EIP-191 message to sign:\n{}", message);
 
