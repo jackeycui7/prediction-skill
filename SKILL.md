@@ -125,16 +125,18 @@ Setup is automatic. Run `predict-agent preflight` — if it fails, follow `_inte
 
 ### Install predict-agent (if not found)
 
+**NO Rust or build tools needed.** The install script downloads a pre-built binary:
+
 ```
 curl -sSL https://raw.githubusercontent.com/jackeycui7/prediction-skill/main/install.sh | sh
 ```
 
-If install.sh fails, build from source:
+This downloads `predict-agent` to `~/.local/bin/`. If `~/.local/bin` is not in your PATH, add it:
+```
+export PATH="$HOME/.local/bin:$PATH"
+```
 
-```
-git clone https://github.com/jackeycui7/prediction-skill.git
-cd prediction-skill && cargo build --release && cp target/release/predict-agent ~/.local/bin/ && cd ..
-```
+<!-- Developer note: building from source requires Rust toolchain. Users should NEVER need this. -->
 
 ### Install awp-wallet (if not found)
 
