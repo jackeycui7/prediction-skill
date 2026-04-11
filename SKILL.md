@@ -196,19 +196,9 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 
 ## Workflow
 
-### Start the Prediction Loop (STRONGLY RECOMMENDED)
+After preflight passes, **start the loop immediately**. Do not run manual commands.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  RECOMMENDED: Run the automatic loop                    │
-│                                                         │
-│  predict-agent loop --interval 120 --agent-id predict-worker │
-│                                                         │
-│  This handles EVERYTHING automatically.                 │
-└─────────────────────────────────────────────────────────┘
-```
-
-After preflight passes, **ask the user**:
+### Step 1: Ask User About Notifications
 
 ```
 Would you like me to report each prediction round, or run silently?
@@ -216,12 +206,22 @@ Would you like me to report each prediction round, or run silently?
   B) Run silently (I'll just let it work in the background)
 ```
 
-Then run the appropriate command:
+### Step 2: Start the Loop
 
 | Choice | Command |
 |--------|---------|
 | A) Report | `predict-agent loop --interval 120 --agent-id predict-worker --notify` |
 | B) Silent | `predict-agent loop --interval 120 --agent-id predict-worker` |
+
+**That's it. The loop handles everything:**
+- Fetches market context automatically
+- Calls an LLM to analyze klines and decide predictions
+- Sizes tickets based on conviction (not just 1 ticket!)
+- Submits predictions with original reasoning
+- Handles rate limits, errors, and retries
+- Runs continuously until stopped (Ctrl+C)
+
+### Relaying Notifications
 
 With `--notify`, the loop outputs lines like:
 ```
@@ -230,128 +230,14 @@ With `--notify`, the loop outputs lines like:
 [NOTIFY] Round 3: Rate limited, waiting 60s
 ```
 
-**Relay these [NOTIFY] lines to the user** as they appear. Without `--notify`, the loop runs silently (logs go to stderr but no user-facing output).
+**Relay these [NOTIFY] lines to the user** as they appear.
 
-The loop:
-- Fetches market context automatically
-- Calls an LLM (via OpenClaw) to analyze klines and decide predictions
-- Submits predictions with original reasoning
-- Handles rate limits, errors, and retries
-- Runs continuously until you stop it (Ctrl+C)
+### Loop Options
 
-Options:
 - `--interval 120` — seconds between rounds (default: 120)
 - `--max-iterations 0` — 0 = unlimited (default)
-- `--agent-id predict-worker` — OpenClaw agent name for LLM analysis
-- `--notify` — output [NOTIFY] lines for agent to relay to user
-
-### Manual Mode (Optional — Try It Once)
-
-Want to understand how it works? You can run ONE manual round to see the flow:
-
-```
-predict-agent context     # See markets and klines
-predict-agent submit ...  # Submit a prediction
-```
-
-But for actual operation, **strongly recommend using the loop** — it handles timing, rate limits, and error recovery automatically. Manual mode is only useful for:
-- Learning how the system works
-- Debugging when the loop fails
-- One-off experiments
-
-After trying manual mode once, switch to the loop for continuous operation.
-
-If you must run one round at a time, follow the 3-step sequence below:
-
-### Step 1: Preflight Check
-
-```
-predict-agent preflight
-```
-
-Preflight checks (in order): wallet configured → AWP network registration (auto-registers if needed, free/gasless) → coordinator reachable → auth works.
-
-Read the output:
-- If `ok` is `false`: execute the command in `_internal.next_command`, then stop this round.
-- If `ok` is `true`: proceed to Step 2.
-- **First run only:** if you haven't set a persona yet, pick one with `predict-agent set-persona <persona>`. Your persona shapes your analysis style — see the Persona Analysis Guides section below.
-
-### Step 2: Get Decision Context
-
-```
-predict-agent context
-```
-
-This returns everything you need in one call:
-- **agent**: your balance, total predictions, persona, excess score
-- **markets**: all open markets with submission status and orderbook data
-- **klines**: price history for the recommended market (candles: open/high/low/close/volume)
-- **recommendation**: what to do next (submit / wait / wait_rate_limited)
-
-Read `recommendation.action`:
-
-| action | what to do |
-|---|---|
-| `submit` | Proceed to Step 3. Analyze klines and submit. |
-| `wait` | No actionable markets. Sleep for `_internal.wait_seconds` seconds. Stop this round. |
-| `wait_rate_limited` | Daily limit reached. Sleep for `_internal.wait_seconds` seconds. Stop this round. |
-
-### Step 3: Analyze and Submit
-
-You have a **3-submission limit per 15-minute timeslot**. This is your most scarce resource. Use all 3 if possible (participation rewards scale with submission count), but spend each one wisely — pick the markets where you have the best edge.
-
-**Strategy — decide WHAT to submit, not just whether to submit:**
-
-1. Scan all markets in `_internal.submittable_markets`. You don't have to take the recommended one.
-2. For each candidate, check `implied_up_prob`:
-   - This is the **price** you are paying. If implied_up_prob = 0.90, buying UP costs 0.90 chips to win 1.00 — terrible odds unless you are >90% sure it goes up.
-   - If implied_up_prob = 0.50 (no participants), the market is fairly priced — your edge comes purely from analysis.
-   - **The profitable play**: find markets where your conviction diverges from implied_up_prob. If market says 0.60 up but you believe 0.80, buy UP. If market says 0.60 but you believe 0.30, buy DOWN.
-3. Pick the market with the best risk/reward, then analyze it.
-
-**Analysis process:**
-
-1. Read the klines array. Each candle has: time, open, high, low, close, volume.
-2. Look for:
-   - Trend direction (sequence of higher/lower closes)
-   - Momentum (are candles getting larger or smaller?)
-   - Volume pattern (increasing volume confirms trend)
-   - Key levels (recent highs/lows as support/resistance)
-3. Check `implied_up_prob` from the market data — this is the current market consensus.
-   - If you believe up probability > implied_up_prob → predict `up`
-   - If you believe up probability < implied_up_prob → predict `down`
-4. Decide tickets (how much to commit). Consider your balance and conviction level.
-5. Write your reasoning. It must be:
-   - 80–2000 characters
-   - At least 2 sentences
-   - Mention the asset (BTC, ETH, etc.) or a direction word
-   - Original — never repeat or paraphrase your previous reasoning
-
-**Submit:**
-
-```
-predict-agent submit --market <id> --prediction <up|down> --tickets <N> --reasoning "<your analysis>"
-```
-
-The `<id>` comes from `recommendation.market_id` or any ID in `_internal.submittable_markets`.
-Only the recommended market has klines data. If you pick a different market, base your reasoning on the market data (implied probability, stats) rather than klines.
-
-**Optional — limit price:**
-
-```
-predict-agent submit --market <id> --prediction up --tickets 500 --limit-price 0.45 --reasoning "..."
-```
-
-Without `--limit-price`: aggressive taker, fills at best available price immediately.
-With `--limit-price`: posts a limit order. Unfilled portion refunds at market close.
-For 15–30 minute markets, omitting `--limit-price` is fine unless you have a specific edge on pricing.
-
-**After submit:** read the output. Check `order_status`:
-- `filled` — all tickets matched. Done.
-- `partial` — some matched, rest queued. Unfilled auto-refund at close.
-- `open` — nothing matched yet. Chips locked until close.
-
-Then follow `_internal.next_command` (usually `predict-agent context` for the next round).
+- `--agent-id predict-worker` — OpenClaw agent name
+- `--notify` — output notifications for user
 
 ## Error Recovery
 
