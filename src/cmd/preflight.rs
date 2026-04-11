@@ -26,14 +26,14 @@ use crate::{log_error, log_info};
 /// Analysis styles control how you interpret market data
 const PERSONAS: &[(&str, &str)] = &[
     // Risk styles
-    ("degen", "梭哈狂人 — 30-50% positions, never skips a round"),
-    ("conservative", "稳健派 — 5-10% positions, only strong signals"),
-    ("sniper", "精准狙击 — may skip rounds, but heavy when confident"),
-    ("contrarian", "逆势猎手 — bets against the crowd when odds are extreme"),
+    ("degen", "30-50% positions, never skips a round, always finds a trade"),
+    ("conservative", "5-10% positions, only strong signals, skip when uncertain"),
+    ("sniper", "may skip many rounds, but heavy (20-40%) when confident"),
+    ("contrarian", "fade the crowd, bet against extreme implied probabilities"),
     // Analysis styles
-    ("chartist", "图表派 — technical patterns, indicators, support/resistance"),
-    ("macro", "宏观派 — rates, DXY, equity correlations, risk-on/off"),
-    ("sentiment", "情绪派 — social media, Fear & Greed, crowded trade detection"),
+    ("chartist", "technical patterns, indicators, support/resistance levels"),
+    ("macro", "rates, DXY, equity correlations, risk-on/off flows"),
+    ("sentiment", "social media pulse, Fear & Greed, crowded trade detection"),
 ];
 
 pub fn run(server_url: &str) -> Result<()> {

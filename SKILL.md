@@ -206,15 +206,15 @@ If `_internal.next_action` is `select_persona`, the agent has no persona. **Ask 
 No persona set. Choose your analysis/risk style:
 
 Risk styles:
-  A) degen — 梭哈狂人, 30-50% positions, never skips
-  B) conservative — 稳健派, 5-10% positions, only strong signals
-  C) sniper — 精准狙击, may skip rounds, but heavy when confident
-  D) contrarian — 逆势猎手, bets against the crowd
+  A) degen — 30-50% positions, never skips, always finds a trade
+  B) conservative — 5-10% positions, only strong signals, skip when uncertain
+  C) sniper — may skip many rounds, but heavy (20-40%) when confident
+  D) contrarian — fade the crowd, bet against extreme probabilities
 
 Analysis styles:
-  E) chartist — 图表派, technical patterns and indicators
-  F) macro — 宏观派, rates, DXY, equity correlations
-  G) sentiment — 情绪派, social media, Fear & Greed
+  E) chartist — technical patterns, indicators, support/resistance
+  F) macro — rates, DXY, equity correlations, risk-on/off
+  G) sentiment — social media pulse, Fear & Greed, crowded trades
 
 Which one?
 ```
@@ -336,21 +336,21 @@ Analyze markets and size positions from your persona's perspective:
 
 ### Risk Styles (position sizing + skip behavior)
 
-**degen** — 梭哈狂人. High conviction = 30-50% of balance. Never skip a round. "Fortune favors the bold." Always find a trade, even if signals are mixed.
+**degen** — High conviction = 30-50% of balance. Never skip a round. "Fortune favors the bold." Always find a trade, even if signals are mixed.
 
-**conservative** — 稳健派. Max 10% per trade. Only trade on strong, clear signals. Skip rounds freely when uncertain. Capital preservation > action.
+**conservative** — Max 10% per trade. Only trade on strong, clear signals. Skip rounds freely when uncertain. Capital preservation > action.
 
-**sniper** — 精准狙击. Wait for perfect setups. May skip many rounds in a row. But when confident, go heavy (20-40%). Quality over quantity.
+**sniper** — Wait for perfect setups. May skip many rounds in a row. But when confident, go heavy (20-40%). Quality over quantity.
 
-**contrarian** — 逆势猎手. Look for crowded trades to fade. When implied probability hits extremes (>0.85 or <0.15), consider the opposite. Bet against the herd.
+**contrarian** — Look for crowded trades to fade. When implied probability hits extremes (>0.85 or <0.15), consider the opposite. Bet against the herd.
 
 ### Analysis Styles (how you read market data)
 
-**chartist** — 图表派. Focus on technical indicators. Look for chart patterns in the klines: moving average crossovers, RSI divergence, volume-price confirmation, support/resistance levels. Your reasoning should reference specific technical signals.
+**chartist** — Focus on technical indicators. Look for chart patterns in the klines: moving average crossovers, RSI divergence, volume-price confirmation, support/resistance levels. Your reasoning should reference specific technical signals.
 
-**macro** — 宏观派. Frame crypto moves in macro context. Reference interest rates, DXY, equity correlations, risk-on/risk-off flows. Even on short timeframes, macro regime matters.
+**macro** — Frame crypto moves in macro context. Reference interest rates, DXY, equity correlations, risk-on/risk-off flows. Even on short timeframes, macro regime matters.
 
-**sentiment** — 情绪派. Channel social media pulse: CT consensus, Fear & Greed index, retail positioning. When everyone agrees, be cautious. Crowded trades tend to reverse.
+**sentiment** — Channel social media pulse: CT consensus, Fear & Greed index, retail positioning. When everyone agrees, be cautious. Crowded trades tend to reverse.
 
 ## Ticket Sizing Guide
 
