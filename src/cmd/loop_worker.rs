@@ -328,7 +328,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
     let llm_text = match llm_response {
         Ok(text) => {
             log_info!("loop: LLM responded ({:.1}s, {} chars)", llm_elapsed.as_secs_f64(), text.len());
-            log_debug!("loop: LLM raw output: {}", &text[..text.len().min(500)]);
+            log_debug!("loop: LLM raw output: {}", truncate_str(&text, 500));
             text
         }
         Err(e) => {
@@ -585,11 +585,7 @@ fn build_prompt(
                 None => prompt.push_str("- Result: pending (market not yet resolved)\n"),
             }
             if !lp_reasoning.is_empty() {
-                let truncated = if lp_reasoning.len() > 200 {
-                    format!("{}...", &lp_reasoning[..200])
-                } else {
-                    lp_reasoning.to_string()
-                };
+                let truncated = truncate_str(lp_reasoning, 200);
                 prompt.push_str(&format!("- Your reasoning was: \"{}\"\n", truncated));
             }
             prompt.push_str("- Consider: was your thesis correct? Should you continue or reverse?\n");
@@ -726,7 +722,7 @@ fn parse_llm_response(text: &str) -> Result<(String, String, Option<u32>, Option
         .context("no JSON object found in LLM response")?;
 
     let v: Value = serde_json::from_str(&json_str)
-        .context(format!("invalid JSON from LLM: {}", &json_str[..json_str.len().min(200)]))?;
+        .context(format!("invalid JSON from LLM: {}", truncate_str(&json_str, 200)))?;
 
     let direction = v
         .get("direction")
@@ -907,4 +903,15 @@ fn extract_short_error(err: &str) -> String {
         }
     }
     err.chars().take(200).collect()
+}
+
+/// Truncate a string to at most `max_chars` characters (not bytes).
+/// Safely handles multi-byte UTF-8 characters like →, Chinese, emoji.
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        format!("{}...", s.chars().take(max_chars).collect::<String>())
+    }
 }
