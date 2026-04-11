@@ -585,8 +585,7 @@ fn build_prompt(
                 None => prompt.push_str("- Result: pending (market not yet resolved)\n"),
             }
             if !lp_reasoning.is_empty() {
-                let truncated = truncate_str(lp_reasoning, 200);
-                prompt.push_str(&format!("- Your reasoning was: \"{}\"\n", truncated));
+                prompt.push_str(&format!("- Your reasoning was: \"{}\"\n", lp_reasoning));
             }
             prompt.push_str("- Consider: was your thesis correct? Should you continue or reverse?\n");
         }
