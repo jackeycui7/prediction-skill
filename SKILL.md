@@ -196,31 +196,47 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 
 ## Workflow
 
-### Start the Prediction Loop
-
-**IMPORTANT: After preflight passes, run this command and stop:**
+### Start the Prediction Loop (STRONGLY RECOMMENDED)
 
 ```
-predict-agent loop --interval 120 --agent-id predict-worker
+┌─────────────────────────────────────────────────────────┐
+│  RECOMMENDED: Run the automatic loop                    │
+│                                                         │
+│  predict-agent loop --interval 120 --agent-id predict-worker │
+│                                                         │
+│  This handles EVERYTHING automatically.                 │
+└─────────────────────────────────────────────────────────┘
 ```
 
-This is the ONLY command you need. The loop:
+After preflight passes, run the loop command above. It:
 - Fetches market context automatically
-- Spawns a sub-agent (via OpenClaw) to analyze klines and decide predictions
-- Submits predictions with proper reasoning
+- Calls an LLM (via OpenClaw) to analyze klines and decide predictions
+- Submits predictions with original reasoning
 - Handles rate limits, errors, and retries
 - Runs continuously until you stop it (Ctrl+C)
 
-**DO NOT manually run context/submit commands.** The loop does everything. Your job is done after starting it.
+**Your job is done after starting the loop.** Just let it run.
 
 Options:
 - `--interval 120` — seconds between rounds (default: 120)
 - `--max-iterations 0` — 0 = unlimited (default)
 - `--agent-id predict-worker` — OpenClaw agent name for LLM analysis
 
-### Manual Mode (Debug Only)
+### Manual Mode (Optional — Try It Once)
 
-**Skip this section.** Only use manual mode if the loop command fails and you need to debug.
+Want to understand how it works? You can run ONE manual round to see the flow:
+
+```
+predict-agent context     # See markets and klines
+predict-agent submit ...  # Submit a prediction
+```
+
+But for actual operation, **strongly recommend using the loop** — it handles timing, rate limits, and error recovery automatically. Manual mode is only useful for:
+- Learning how the system works
+- Debugging when the loop fails
+- One-off experiments
+
+After trying manual mode once, switch to the loop for continuous operation.
 
 If you must run one round at a time, follow the 3-step sequence below:
 
