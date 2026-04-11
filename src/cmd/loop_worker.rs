@@ -262,7 +262,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         .iter()
         .filter(|r| {
             let not_skip = r.get("action").and_then(|a| a.as_str()) != Some("skip");
-            let enough_time = r.get("closes_in_seconds")
+            let enough_time = r.get("seconds_to_close")
                 .and_then(|v| v.as_i64())
                 .map(|s| s > 120)
                 .unwrap_or(false);
@@ -491,7 +491,7 @@ fn build_prompt(
         .or_else(|| recommended.get("orderbook").and_then(|o| o.get("implied_up_prob")))
         .and_then(|v| v.as_f64())
         .unwrap_or(0.5);
-    let closes_in = recommended.get("closes_in_seconds")
+    let closes_in = recommended.get("seconds_to_close")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
