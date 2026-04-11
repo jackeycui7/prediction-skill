@@ -339,6 +339,19 @@ When a command returns `ok: false`, the error object tells you exactly what happ
 
 These are not part of the main loop, but you can use them when relevant:
 
+**Check wallet status (SAFETY FIRST):**
+```
+predict-agent wallet
+```
+Shows wallet state and whether it's safe to run `awp-wallet init`. Output includes:
+- `cli_installed` — is awp-wallet CLI available?
+- `wallet_dir_exists` — does ~/.awp-wallet exist?
+- `has_keystore` — are there keystore files?
+- `safe_to_init` — **is it safe to run init?** (false if wallet exists)
+- `human_status` — plain English explanation
+
+**CRITICAL**: If `safe_to_init` is `false`, do NOT run `awp-wallet init` — that would overwrite the existing wallet and lose all funds/history.
+
 **Check your status:**
 ```
 predict-agent status

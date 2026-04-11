@@ -15,6 +15,7 @@ mod awp_register;
 mod client;
 mod cmd;
 mod output;
+mod wallet;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -50,6 +51,9 @@ struct Cli {
 enum Commands {
     /// Check all prerequisites (wallet, connectivity, registration)
     Preflight,
+
+    /// Check wallet status and safety (is init safe? is wallet locked?)
+    Wallet,
 
     /// Fetch full decision context: agent status + markets + klines + recommendation
     Context,
@@ -126,6 +130,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Preflight => cmd::preflight::run(server)?,
+        Commands::Wallet => cmd::wallet_check::run()?,
         Commands::Context => cmd::context::run(server)?,
         Commands::Submit {
             market,

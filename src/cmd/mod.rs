@@ -6,3 +6,4 @@ pub mod result;
 pub mod set_persona;
 pub mod status;
 pub mod submit;
+pub mod wallet_check;

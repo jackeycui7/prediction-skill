@@ -18,6 +18,7 @@ use crate::auth::get_address;
 use crate::awp_register;
 use crate::client::{check_server, ApiClient};
 use crate::output::{Choice, Internal, Output};
+use crate::wallet::WalletStatus;
 use crate::{log_error, log_info};
 
 /// Valid personas with descriptions
@@ -44,37 +45,34 @@ pub fn run(server_url: &str) -> Result<()> {
         }
         Err(e) => {
             log_error!("preflight [1/4]: wallet resolution failed: {}", e);
-            // Check if wallet directory exists to give better guidance
-            let wallet_dir_exists = std::path::Path::new(&format!(
-                "{}/.awp-wallet",
-                std::env::var("HOME").unwrap_or_default()
-            ))
-            .exists();
 
-            let (suggestion, next_cmd) = if wallet_dir_exists {
-                // Wallet exists but not unlocked — just need unlock
-                (
-                    "Wallet exists but not unlocked. Run: export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)",
-                    "export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)"
-                )
-            } else {
-                // No wallet — need init first
-                (
-                    "No wallet found. Run: awp-wallet init && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)",
-                    "awp-wallet init && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)"
-                )
-            };
+            // Use WalletStatus for safe, accurate guidance
+            let wallet_status = WalletStatus::check();
+            log_info!(
+                "preflight [1/4]: wallet check — cli={}, dir={}, keystore={}, can_receive={}",
+                wallet_status.cli_installed,
+                wallet_status.wallet_dir_exists,
+                wallet_status.has_keystore,
+                wallet_status.can_receive
+            );
 
             Output::error_with_debug(
                 format!("Cannot determine wallet address: {e}"),
                 "WALLET_NOT_CONFIGURED",
                 "dependency",
                 false,
-                suggestion,
+                wallet_status.suggestion(),
                 json!({
                     "step": "1_wallet_address",
                     "error_detail": format!("{e}"),
-                    "wallet_dir_exists": wallet_dir_exists,
+                    "wallet_status": {
+                        "cli_installed": wallet_status.cli_installed,
+                        "wallet_dir_exists": wallet_status.wallet_dir_exists,
+                        "has_keystore": wallet_status.has_keystore,
+                        "can_receive": wallet_status.can_receive,
+                        "safe_to_init": wallet_status.safe_to_init(),
+                        "human_status": wallet_status.human_status,
+                    },
                     "env_AWP_ADDRESS": std::env::var("AWP_ADDRESS").is_ok(),
                     "env_AWP_PRIVATE_KEY": std::env::var("AWP_PRIVATE_KEY").is_ok(),
                     "env_AWP_WALLET_TOKEN": std::env::var("AWP_WALLET_TOKEN").is_ok(),
@@ -82,7 +80,7 @@ pub fn run(server_url: &str) -> Result<()> {
                 }),
                 Internal {
                     next_action: "configure_wallet".into(),
-                    next_command: Some(next_cmd.into()),
+                    next_command: Some(wallet_status.setup_command().into()),
                     progress: Some("0/4".into()),
                     ..Default::default()
                 },
