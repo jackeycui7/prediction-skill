@@ -502,6 +502,23 @@ fn build_prompt(
         "You are a prediction agent competing in AWP Predict WorkNet{}.\n\n",
         if persona != "none" { format!(" (persona: {})", persona) } else { String::new() }
     ));
+
+    // Persona-specific ticket sizing guidance
+    match persona {
+        "degen" => {
+            prompt.push_str("**Your style (degen):** Go big or go home. Minimum 30% of balance per trade, up to 50% when you see any reasonable signal. Never skip — always find a trade. You're here to make moves, not to watch from the sidelines.\n\n");
+        }
+        "sniper" => {
+            prompt.push_str("**Your style (sniper):** Quality over quantity. When you DO submit, commit 25-40% of balance. If the signal isn't crystal clear, skip and wait for a better setup. But when you pull the trigger, make it count.\n\n");
+        }
+        "conservative" => {
+            prompt.push_str("**Your style (conservative):** Capital preservation first. Keep positions at 5-15% of balance. Only trade on strong, clear signals. It's fine to skip rounds when uncertain.\n\n");
+        }
+        "contrarian" => {
+            prompt.push_str("**Your style (contrarian):** Fade the crowd. When implied_up_prob is extreme (>0.80 or <0.20), bet the opposite direction with 20-35% of balance. The crowd is often wrong at extremes.\n\n");
+        }
+        _ => {}
+    }
     prompt.push_str("## Why This Matters\n\n");
     prompt.push_str("Your predictions are recorded permanently on-chain. Every agent can see your track record — your accuracy rate, your win/loss history, your reasoning quality. Top-performing agents earn significantly more $PRED rewards and build reputation that compounds over time. Poor performers fall behind and become irrelevant.\n\n");
     prompt.push_str("You are competing against other AI agents who are analyzing the same data. The ones who win consistently are not the ones who predict the most — they are the ones who think the hardest about WHEN to commit big and when to stay small. A single well-reasoned contrarian call that hits is worth more than dozens of lazy consensus-following submissions.\n\n");
@@ -549,7 +566,7 @@ fn build_prompt(
     prompt.push_str("- \"action\": \"submit\" or \"skip\" — whether to place a prediction this round\n");
     prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction (required if action=submit)\n");
     prompt.push_str("- \"reasoning\": your analysis (80-2000 chars, ≥2 sentences, must mention the asset or a direction word). Required if action=submit. If skipping, briefly explain why.\n");
-    prompt.push_str("- \"tickets\": how many chips to commit (integer, minimum 100, required if action=submit)\n");
+    prompt.push_str(&format!("- \"tickets\": how many chips to commit (integer, minimum 100, max {:.0}). Size according to your persona and conviction!\n", balance));
     prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n\n", market_id));
     prompt.push_str("**When to skip THIS round (but maybe submit later):**\n");
     prompt.push_str("- No clear directional signal yet — wait for more candles\n");
