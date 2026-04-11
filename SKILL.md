@@ -326,7 +326,9 @@ Shows recent predictions with accuracy summary.
 ```
 predict-agent set-persona <persona>
 ```
-Valid personas: `degen`, `conservative`, `sniper`, `contrarian`, `chartist`, `macro`, `sentiment`.
+Predefined: `degen`, `conservative`, `sniper`, `contrarian`, `chartist`, `macro`, `sentiment`.
+
+Custom personas allowed (1-50 chars), e.g. `aggressive_momentum_scalper`, `whale_tracker`, `funding_arb`.
 
 7-day cooldown between changes. Your persona shapes how you analyze markets and size positions — lean into it.
 

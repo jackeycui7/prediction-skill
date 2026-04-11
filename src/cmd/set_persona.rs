@@ -7,13 +7,12 @@ use crate::client::ApiClient;
 use crate::output::{Internal, Output};
 use crate::{log_debug, log_error, log_info};
 
-pub const VALID_PERSONAS: &[&str] = &[
-    // Risk styles
+// Predefined personas with known sizing behavior
+pub const PREDEFINED_PERSONAS: &[&str] = &[
     "degen",
     "conservative",
     "sniper",
     "contrarian",
-    // Analysis styles
     "chartist",
     "macro",
     "sentiment",
@@ -22,34 +21,9 @@ pub const VALID_PERSONAS: &[&str] = &[
 pub fn run(server_url: &str, persona: &str) -> Result<()> {
     log_info!("set-persona: setting persona to '{}' at {}", persona, server_url);
 
-    if !VALID_PERSONAS.contains(&persona) {
-        log_error!(
-            "set-persona: invalid persona '{}'. Valid: {:?}",
-            persona,
-            VALID_PERSONAS
-        );
-        Output::error_with_debug(
-            format!(
-                "Invalid persona '{}'. Valid options: {}",
-                persona,
-                VALID_PERSONAS.join(", ")
-            ),
-            "INVALID_PERSONA",
-            "validation",
-            false,
-            format!("Use one of: {}", VALID_PERSONAS.join(", ")),
-            json!({
-                "provided_persona": persona,
-                "valid_personas": VALID_PERSONAS,
-            }),
-            Internal {
-                next_action: "fix_command".into(),
-                next_command: Some("predict-agent set-persona <persona>".into()),
-                ..Default::default()
-            },
-        )
-        .print();
-        return Ok(());
+    // Custom personas are allowed - server validates length (1-50 chars)
+    if !PREDEFINED_PERSONAS.contains(&persona) {
+        log_info!("set-persona: using custom persona '{}'", persona);
     }
 
     let client = ApiClient::new(server_url.to_string())?;
