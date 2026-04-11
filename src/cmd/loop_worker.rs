@@ -257,11 +257,16 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         }
     };
 
-    // Filter to actionable recommendations (action != "skip", score > 0)
+    // Filter to actionable recommendations (action != "skip", >120s remaining)
     let actionable: Vec<&Value> = recommendations
         .iter()
         .filter(|r| {
-            r.get("action").and_then(|a| a.as_str()) != Some("skip")
+            let not_skip = r.get("action").and_then(|a| a.as_str()) != Some("skip");
+            let enough_time = r.get("closes_in_seconds")
+                .and_then(|v| v.as_i64())
+                .map(|s| s > 120)
+                .unwrap_or(false);
+            not_skip && enough_time
         })
         .collect();
 
@@ -557,7 +562,8 @@ fn build_prompt(
     prompt.push_str("- You've had several losses and need to re-evaluate your strategy\n");
     prompt.push_str("- No market offers any edge at current prices\n\n");
     prompt.push_str("Remember: Skipping now doesn't mean skipping forever. You might skip 2 rounds then submit 3 times in the last round of this timeslot. That's a valid strategy.\n\n");
-    prompt.push_str("Output ONLY the JSON. No markdown fences, no text outside the JSON.\n\n");
+    prompt.push_str("Output ONLY the JSON. No markdown fences, no text outside the JSON.\n");
+    prompt.push_str("**All text must be in English.** Reasoning, skip explanations, everything — English only.\n\n");
 
     // Current state with timeslot
     prompt.push_str("## Your Current State\n\n");
