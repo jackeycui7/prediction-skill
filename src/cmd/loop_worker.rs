@@ -576,7 +576,7 @@ fn build_prompt(
     }
     prompt.push_str(&format!("- Available markets: {}\n", all_markets.len()));
 
-    // Open positions
+    // Open positions with anti-contradiction warning
     if let Some(orders) = open_orders {
         if !orders.is_empty() {
             prompt.push_str(&format!("\n**Your open positions ({}):**\n", orders.len()));
@@ -591,6 +591,10 @@ fn build_prompt(
                     o.get("close_at").and_then(|v| v.as_str()).unwrap_or("?"),
                 ));
             }
+            prompt.push_str("\n**CRITICAL: Do NOT bet against your open positions.**\n");
+            prompt.push_str("If you have an open UP position, do NOT submit DOWN on the same market (and vice versa).\n");
+            prompt.push_str("Options: (1) add to your existing position, (2) bet on a DIFFERENT market, or (3) skip this round.\n");
+            prompt.push_str("Betting both directions on the same market guarantees a loss.\n\n");
         }
     }
 
