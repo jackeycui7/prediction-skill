@@ -55,8 +55,10 @@ impl ApiClient {
 
     /// GET an authenticated endpoint.
     pub fn get_auth(&self, path: &str) -> Result<Value> {
+        // Strip query params for signing (server verifies path only, not query string)
+        let sign_path = path.split('?').next().unwrap_or(path);
         // GET requests have empty body
-        let auth = build_auth_headers(&self.address, "GET", path, &[])?;
+        let auth = build_auth_headers(&self.address, "GET", sign_path, &[])?;
         let url = format!("{}{}", self.base_url, path);
         log_debug!(
             "GET {} (auth: address={}, timestamp={})",
