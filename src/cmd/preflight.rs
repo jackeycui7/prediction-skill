@@ -334,17 +334,16 @@ pub fn run(server_url: &str) -> Result<()> {
         })
         .collect();
 
-    // First run: show welcome and persona selection
-    if is_first_run && (persona == "none" || persona.is_empty()) {
-        log_info!("preflight: first run detected, prompting persona selection");
+    // Prompt persona selection whenever not set (not just first run)
+    if persona == "none" || persona.is_empty() {
+        log_info!("preflight: no persona set, prompting selection");
         Output::success(
             format!(
-                "Welcome to Predict WorkNet! Choose your analysis persona to get started. {} open markets waiting.",
-                open_markets
+                "Ready! But no persona set — choose one to shape your analysis style. {} open markets, {} chips.",
+                open_markets, balance
             ),
             json!({
-                "status": "ready",
-                "first_run": true,
+                "status": "needs_persona",
                 "address": address,
                 "open_markets": open_markets,
                 "total_predictions": total_predictions,

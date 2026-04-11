@@ -196,9 +196,32 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 
 ## Workflow
 
-After preflight passes, **start the loop immediately**. Do not run manual commands.
+After preflight passes, follow these steps. Do not run manual commands.
 
-### Step 1: Ask User About Notifications
+### Step 1: Set Persona (if not set)
+
+If `_internal.next_action` is `select_persona`, the agent has no persona. **Ask the user to pick one:**
+
+```
+No persona set. Choose your analysis/risk style:
+
+Risk styles:
+  A) degen — 梭哈狂人, 30-50% positions, never skips
+  B) conservative — 稳健派, 5-10% positions, only strong signals
+  C) sniper — 精准狙击, may skip rounds, but heavy when confident
+  D) contrarian — 逆势猎手, bets against the crowd
+
+Analysis styles:
+  E) chartist — 图表派, technical patterns and indicators
+  F) macro — 宏观派, rates, DXY, equity correlations
+  G) sentiment — 情绪派, social media, Fear & Greed
+
+Which one?
+```
+
+Then run: `predict-agent set-persona <choice>`
+
+### Step 2: Ask User About Notifications
 
 ```
 Would you like me to report each prediction round, or run silently?
@@ -206,7 +229,7 @@ Would you like me to report each prediction round, or run silently?
   B) Run silently (I'll just let it work in the background)
 ```
 
-### Step 2: Start the Loop
+### Step 3: Start the Loop
 
 | Choice | Command |
 |--------|---------|
