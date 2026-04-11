@@ -328,6 +328,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         balance,
         persona,
         submissions_remaining,
+        slot_resets_in,
         &open_orders,
         &recent_results,
     );
@@ -458,6 +459,7 @@ fn build_prompt(
     balance: f64,
     persona: &str,
     submissions_remaining: i64,
+    slot_resets_in: u64,
     open_orders: &Option<Vec<Value>>,
     recent_results: &Option<Vec<Value>>,
 ) -> String {
@@ -510,10 +512,15 @@ fn build_prompt(
     prompt.push_str("- Alpha Pool (80%): proportional to your excess_score = max(0, balance - total_chips_fed_today). You earn Alpha only if you **grew** your chip balance beyond what was given.\n");
     prompt.push_str("- The Alpha Pool is where the real money is. One well-sized winning prediction can earn more Alpha than dozens of small break-even ones.\n\n");
 
-    prompt.push_str("**Constraints:**\n");
-    prompt.push_str("- 3 submissions per 15-minute timeslot.\n");
-    prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n");
-    prompt.push_str("- You can also choose to **skip** this round entirely if no market offers a good opportunity.\n\n");
+    prompt.push_str("**Constraints and timing:**\n");
+    prompt.push_str("- 3 submissions per 15-minute timeslot. Using all 3 is good for participation rewards.\n");
+    prompt.push_str("- BUT you don't have to use them immediately. You have the full 15 minutes to decide WHEN to submit.\n");
+    prompt.push_str("- Possible strategies within a timeslot:\n");
+    prompt.push_str("  - Submit early: act on current signals before others, but miss later developments\n");
+    prompt.push_str("  - Spread out: submit one, wait, see results, adjust next submission\n");
+    prompt.push_str("  - Wait and batch: skip early rounds, gather more data, submit all 3 near the end\n");
+    prompt.push_str("- All of these are valid. The worst strategy is submitting hastily just to \"use up\" your slots.\n");
+    prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n\n");
 
     // Response format
     prompt.push_str("## Your Response\n\n");
@@ -523,18 +530,34 @@ fn build_prompt(
     prompt.push_str("- \"reasoning\": your analysis (80-2000 chars, ≥2 sentences, must mention the asset or a direction word). Required if action=submit. If skipping, briefly explain why.\n");
     prompt.push_str("- \"tickets\": how many chips to commit (integer, ≥1, required if action=submit)\n");
     prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n\n", market_id));
-    prompt.push_str("**When to skip:**\n");
-    prompt.push_str("- No clear directional signal in the data\n");
-    prompt.push_str("- The price (implied_up_prob) already reflects your view — no edge\n");
-    prompt.push_str("- You just lost and need to re-evaluate your thesis before committing more\n");
-    prompt.push_str("- All markets are closing soon (<60s) — not enough time for thesis to play out\n\n");
-    prompt.push_str("Skipping is not failure. Skipping a bad trade is the same as winning a good one — both grow your long-term edge.\n\n");
+    prompt.push_str("**When to skip THIS round (but maybe submit later):**\n");
+    prompt.push_str("- No clear directional signal yet — wait for more candles\n");
+    prompt.push_str("- The price already reflects your view — no edge right now\n");
+    prompt.push_str("- You just submitted and want to see the result before committing more\n");
+    prompt.push_str("- You want to save submissions for later in this timeslot when signals are clearer\n");
+    prompt.push_str("- You're waiting for a specific market to open or reach a better price\n\n");
+    prompt.push_str("**When to skip entirely (not submit this timeslot):**\n");
+    prompt.push_str("- All markets are closing soon (<60s) — not enough time\n");
+    prompt.push_str("- You've had several losses and need to re-evaluate your strategy\n");
+    prompt.push_str("- No market offers any edge at current prices\n\n");
+    prompt.push_str("Remember: Skipping now doesn't mean skipping forever. You might skip 2 rounds then submit 3 times in the last round of this timeslot. That's a valid strategy.\n\n");
     prompt.push_str("Output ONLY the JSON. No markdown fences, no text outside the JSON.\n\n");
 
     // Current state with timeslot
     prompt.push_str("## Your Current State\n\n");
     prompt.push_str(&format!("- Balance: {:.0} chips\n", balance));
     prompt.push_str(&format!("- Submissions remaining this timeslot: {}/3\n", submissions_remaining));
+    if slot_resets_in > 0 {
+        let mins_left = slot_resets_in / 60;
+        let secs_left = slot_resets_in % 60;
+        if mins_left > 10 {
+            prompt.push_str(&format!("- Timeslot resets in {}m — plenty of time, no rush\n", mins_left));
+        } else if mins_left > 3 {
+            prompt.push_str(&format!("- Timeslot resets in {}m{}s — moderate time left\n", mins_left, secs_left));
+        } else {
+            prompt.push_str(&format!("- Timeslot resets in {}m{}s — getting tight, decide soon\n", mins_left, secs_left));
+        }
+    }
     prompt.push_str(&format!("- Available markets: {}\n", all_markets.len()));
 
     // Open positions
