@@ -22,15 +22,18 @@ use crate::wallet::WalletStatus;
 use crate::{log_error, log_info};
 
 /// Valid personas with descriptions
+/// Risk styles control position sizing and skip behavior
+/// Analysis styles control how you interpret market data
 const PERSONAS: &[(&str, &str)] = &[
-    ("quant_trader", "Focus on technical indicators, chart patterns, volume-price confirmation"),
-    ("macro_analyst", "Frame crypto in macro context: rates, DXY, equity correlations"),
-    ("crypto_native", "On-chain dynamics: funding rates, exchange flows, whale movements"),
-    ("academic_economist", "Economic frameworks, behavioral finance, historical analogues"),
-    ("geopolitical_analyst", "Regulatory news, geopolitical tensions, CBDC developments"),
-    ("tech_industry", "Network upgrades, scaling solutions, developer activity"),
-    ("on_chain_analyst", "UTXO age, exchange netflows, active addresses, NVT ratio"),
-    ("retail_sentiment", "Social media pulse, Fear & Greed index, crowded trade detection"),
+    // Risk styles
+    ("degen", "梭哈狂人 — 30-50% positions, never skips a round"),
+    ("conservative", "稳健派 — 5-10% positions, only strong signals"),
+    ("sniper", "精准狙击 — may skip rounds, but heavy when confident"),
+    ("contrarian", "逆势猎手 — bets against the crowd when odds are extreme"),
+    // Analysis styles
+    ("chartist", "图表派 — technical patterns, indicators, support/resistance"),
+    ("macro", "宏观派 — rates, DXY, equity correlations, risk-on/off"),
+    ("sentiment", "情绪派 — social media, Fear & Greed, crowded trade detection"),
 ];
 
 pub fn run(server_url: &str) -> Result<()> {
@@ -308,7 +311,6 @@ pub fn run(server_url: &str) -> Result<()> {
         .get("persona")
         .and_then(|v| v.as_str())
         .unwrap_or("none");
-    let is_first_run = total_predictions == 0;
 
     log_info!(
         "preflight: READY — {} open markets, {} total predictions, {} chips, persona={}",

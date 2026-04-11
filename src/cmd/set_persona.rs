@@ -8,14 +8,15 @@ use crate::output::{Internal, Output};
 use crate::{log_debug, log_error, log_info};
 
 pub const VALID_PERSONAS: &[&str] = &[
-    "quant_trader",
-    "macro_analyst",
-    "crypto_native",
-    "academic_economist",
-    "geopolitical_analyst",
-    "tech_industry",
-    "on_chain_analyst",
-    "retail_sentiment",
+    // Risk styles
+    "degen",
+    "conservative",
+    "sniper",
+    "contrarian",
+    // Analysis styles
+    "chartist",
+    "macro",
+    "sentiment",
 ];
 
 pub fn run(server_url: &str, persona: &str) -> Result<()> {

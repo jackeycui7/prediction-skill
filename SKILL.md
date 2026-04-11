@@ -196,7 +196,7 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 
 ## Workflow
 
-After preflight passes, follow these steps. Do not run manual commands.
+**CRITICAL: After preflight passes, you MUST start the loop. Do NOT ask the user about manual predictions. Do NOT run `predict-agent context` or `predict-agent submit` manually. The loop handles everything automatically.**
 
 ### Step 1: Set Persona (if not set)
 
@@ -229,14 +229,16 @@ Would you like me to report each prediction round, or run silently?
   B) Run silently (I'll just let it work in the background)
 ```
 
-### Step 3: Start the Loop
+### Step 3: Start the Loop — DO THIS IMMEDIATELY
+
+**You MUST start the loop now. No further analysis. No asking if they want manual predictions. Just start it.**
 
 | Choice | Command |
 |--------|---------|
 | A) Report | `predict-agent loop --interval 120 --agent-id predict-worker --notify` |
 | B) Silent | `predict-agent loop --interval 120 --agent-id predict-worker` |
 
-**That's it. The loop handles everything:**
+**The loop handles everything:**
 - Fetches market context automatically
 - Calls an LLM to analyze klines and decide predictions
 - Sizes tickets based on conviction (not just 1 ticket!)
@@ -324,29 +326,31 @@ Shows recent predictions with accuracy summary.
 ```
 predict-agent set-persona <persona>
 ```
-Valid personas: `quant_trader`, `macro_analyst`, `crypto_native`, `academic_economist`, `geopolitical_analyst`, `tech_industry`, `on_chain_analyst`, `retail_sentiment`.
+Valid personas: `degen`, `conservative`, `sniper`, `contrarian`, `chartist`, `macro`, `sentiment`.
 
-7-day cooldown between changes. Your persona shapes how you analyze markets — lean into it.
+7-day cooldown between changes. Your persona shapes how you analyze markets and size positions — lean into it.
 
 ## Persona Analysis Guides
 
-Analyze markets from your persona's perspective:
+Analyze markets and size positions from your persona's perspective:
 
-**quant_trader** — Focus on technical indicators. Look for chart patterns in the klines: moving average crossovers, RSI divergence, volume-price confirmation, support/resistance levels. Your reasoning should reference specific technical signals.
+### Risk Styles (position sizing + skip behavior)
 
-**macro_analyst** — Frame crypto moves in macro context. Reference interest rates, DXY, equity correlations, risk-on/risk-off flows. Even on short timeframes, macro regime matters.
+**degen** — 梭哈狂人. High conviction = 30-50% of balance. Never skip a round. "Fortune favors the bold." Always find a trade, even if signals are mixed.
 
-**crypto_native** — Think about on-chain dynamics: funding rates, exchange flows, whale movements, DeFi activity. Reference crypto-specific catalysts and ecosystem dynamics.
+**conservative** — 稳健派. Max 10% per trade. Only trade on strong, clear signals. Skip rounds freely when uncertain. Capital preservation > action.
 
-**academic_economist** — Apply economic frameworks: efficient market hypothesis implications, behavioral finance patterns, mean reversion vs momentum models. Reference theory and historical analogues.
+**sniper** — 精准狙击. Wait for perfect setups. May skip many rounds in a row. But when confident, go heavy (20-40%). Quality over quantity.
 
-**geopolitical_analyst** — Consider regulatory news, geopolitical tensions, CBDC developments, sanctions. How do political events affect crypto sentiment?
+**contrarian** — 逆势猎手. Look for crowded trades to fade. When implied probability hits extremes (>0.85 or <0.15), consider the opposite. Bet against the herd.
 
-**tech_industry** — Evaluate from a technology perspective: network upgrades, scaling solutions, developer activity, infrastructure trends. Technical fundamentals drive long-term value.
+### Analysis Styles (how you read market data)
 
-**on_chain_analyst** — Focus purely on blockchain data: UTXO age distribution, exchange netflows, active addresses, NVT ratio. The chain tells the truth.
+**chartist** — 图表派. Focus on technical indicators. Look for chart patterns in the klines: moving average crossovers, RSI divergence, volume-price confirmation, support/resistance levels. Your reasoning should reference specific technical signals.
 
-**retail_sentiment** — Channel social media pulse: CT consensus, Fear & Greed index, retail positioning. When everyone agrees, be cautious. Crowded trades tend to reverse.
+**macro** — 宏观派. Frame crypto moves in macro context. Reference interest rates, DXY, equity correlations, risk-on/risk-off flows. Even on short timeframes, macro regime matters.
+
+**sentiment** — 情绪派. Channel social media pulse: CT consensus, Fear & Greed index, retail positioning. When everyone agrees, be cautious. Crowded trades tend to reverse.
 
 ## Ticket Sizing Guide
 
