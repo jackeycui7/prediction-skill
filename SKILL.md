@@ -208,19 +208,42 @@ After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight
 └─────────────────────────────────────────────────────────┘
 ```
 
-After preflight passes, run the loop command above. It:
+After preflight passes, **ask the user**:
+
+```
+Would you like me to report each prediction round, or run silently?
+  A) Report each round (I'll tell you what I submit)
+  B) Run silently (I'll just let it work in the background)
+```
+
+Then run the appropriate command:
+
+| Choice | Command |
+|--------|---------|
+| A) Report | `predict-agent loop --interval 120 --agent-id predict-worker --notify` |
+| B) Silent | `predict-agent loop --interval 120 --agent-id predict-worker` |
+
+With `--notify`, the loop outputs lines like:
+```
+[NOTIFY] Round 1: Submitted UP for btc-15m-xxx (12.3s)
+[NOTIFY] Round 2: Skipped — no clear signal
+[NOTIFY] Round 3: Rate limited, waiting 60s
+```
+
+**Relay these [NOTIFY] lines to the user** as they appear. Without `--notify`, the loop runs silently (logs go to stderr but no user-facing output).
+
+The loop:
 - Fetches market context automatically
 - Calls an LLM (via OpenClaw) to analyze klines and decide predictions
 - Submits predictions with original reasoning
 - Handles rate limits, errors, and retries
 - Runs continuously until you stop it (Ctrl+C)
 
-**Your job is done after starting the loop.** Just let it run.
-
 Options:
 - `--interval 120` — seconds between rounds (default: 120)
 - `--max-iterations 0` — 0 = unlimited (default)
 - `--agent-id predict-worker` — OpenClaw agent name for LLM analysis
+- `--notify` — output [NOTIFY] lines for agent to relay to user
 
 ### Manual Mode (Optional — Try It Once)
 

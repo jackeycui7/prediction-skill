@@ -121,6 +121,10 @@ enum Commands {
         /// OpenClaw agent ID for LLM calls
         #[arg(long, default_value = "predict-worker")]
         agent_id: String,
+
+        /// Output [NOTIFY] lines for each round (agent relays to user)
+        #[arg(long)]
+        notify: bool,
     },
 }
 
@@ -158,12 +162,14 @@ fn main() -> Result<()> {
             interval,
             max_iterations,
             agent_id,
+            notify,
         } => cmd::loop_worker::run(
             server,
             cmd::loop_worker::LoopArgs {
                 interval,
                 max_iterations,
                 agent_id,
+                notify,
             },
         )?,
     }

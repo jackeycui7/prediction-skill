@@ -29,6 +29,19 @@ pub struct LoopArgs {
     pub interval: u64,
     pub max_iterations: u64,
     pub agent_id: String,
+    /// If true, output [NOTIFY] lines for the agent to relay to user
+    pub notify: bool,
+}
+
+/// Print a notification line that the agent should relay to the user.
+/// Format: [NOTIFY] <message>
+/// Only printed if notify=true.
+macro_rules! notify {
+    ($notify:expr, $($arg:tt)*) => {
+        if $notify {
+            println!("[NOTIFY] {}", format!($($arg)*));
+        }
+    };
 }
 
 pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
@@ -81,21 +94,16 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
 
         match run_iteration(server_url, &openclaw_bin, &args.agent_id) {
             IterationResult::Submitted { market, direction } => {
-                log_info!(
-                    "loop: submitted {} for {} ({:.1}s)",
-                    direction,
-                    market,
-                    iter_start.elapsed().as_secs_f64()
-                );
+                let elapsed = iter_start.elapsed().as_secs_f64();
+                log_info!("loop: submitted {} for {} ({:.1}s)", direction, market, elapsed);
+                notify!(args.notify, "Round {}: Submitted {} for {} ({:.1}s)", iteration, direction.to_uppercase(), market, elapsed);
                 consecutive_empty = 0;
                 consecutive_errors = 0;
             }
             IterationResult::Skipped { reason } => {
-                log_info!(
-                    "loop: skipped this round ({:.1}s): {}",
-                    iter_start.elapsed().as_secs_f64(),
-                    reason
-                );
+                let elapsed = iter_start.elapsed().as_secs_f64();
+                log_info!("loop: skipped this round ({:.1}s): {}", elapsed, reason);
+                notify!(args.notify, "Round {}: Skipped — {}", iteration, reason);
                 consecutive_empty = 0;
                 consecutive_errors = 0;
                 // No penalty for skipping — it's a valid decision
@@ -108,11 +116,13 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                     consecutive_empty,
                     backoff
                 );
+                notify!(args.notify, "Round {}: No markets available, waiting {}s", iteration, backoff);
                 interruptible_sleep(backoff, &running);
                 continue;
             }
             IterationResult::RateLimited { wait_seconds } => {
                 log_info!("loop: rate limited, sleeping {}s", wait_seconds);
+                notify!(args.notify, "Round {}: Rate limited, waiting {}s", iteration, wait_seconds);
                 interruptible_sleep(wait_seconds, &running);
                 continue;
             }
@@ -125,6 +135,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                     backoff,
                     consecutive_errors
                 );
+                notify!(args.notify, "Round {}: LLM error — {}, retrying in {}s", iteration, reason, backoff);
                 interruptible_sleep(backoff, &running);
                 continue;
             }
@@ -137,6 +148,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                     backoff,
                     consecutive_errors
                 );
+                notify!(args.notify, "Round {}: Error — {}, retrying in {}s", iteration, reason, backoff);
                 interruptible_sleep(backoff, &running);
                 continue;
             }
