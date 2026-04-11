@@ -79,6 +79,16 @@ pub struct ErrorDetail {
     pub debug: Option<Value>,
 }
 
+/// A choice option for user selection (e.g., persona, mode)
+#[derive(Serialize, Clone)]
+pub struct Choice {
+    pub key: String,
+    pub label: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
 #[derive(Serialize, Default)]
 pub struct Internal {
     pub next_action: String,
@@ -90,6 +100,12 @@ pub struct Internal {
     pub submittable_markets: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<Value>,
+    /// Progress indicator (e.g., "2/4")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
+    /// User choices when multiple options are available
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<Choice>>,
 }
 
 impl Output {
