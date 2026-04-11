@@ -44,15 +44,37 @@ pub fn run(server_url: &str) -> Result<()> {
         }
         Err(e) => {
             log_error!("preflight [1/4]: wallet resolution failed: {}", e);
+            // Check if wallet directory exists to give better guidance
+            let wallet_dir_exists = std::path::Path::new(&format!(
+                "{}/.awp-wallet",
+                std::env::var("HOME").unwrap_or_default()
+            ))
+            .exists();
+
+            let (suggestion, next_cmd) = if wallet_dir_exists {
+                // Wallet exists but not unlocked — just need unlock
+                (
+                    "Wallet exists but not unlocked. Run: export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)",
+                    "export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)"
+                )
+            } else {
+                // No wallet — need init first
+                (
+                    "No wallet found. Run: awp-wallet init && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)",
+                    "awp-wallet init && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)"
+                )
+            };
+
             Output::error_with_debug(
                 format!("Cannot determine wallet address: {e}"),
                 "WALLET_NOT_CONFIGURED",
                 "dependency",
                 false,
-                "Wallet not configured. Run: awp-wallet init (if no wallet), then: export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)",
+                suggestion,
                 json!({
                     "step": "1_wallet_address",
                     "error_detail": format!("{e}"),
+                    "wallet_dir_exists": wallet_dir_exists,
                     "env_AWP_ADDRESS": std::env::var("AWP_ADDRESS").is_ok(),
                     "env_AWP_PRIVATE_KEY": std::env::var("AWP_PRIVATE_KEY").is_ok(),
                     "env_AWP_WALLET_TOKEN": std::env::var("AWP_WALLET_TOKEN").is_ok(),
@@ -60,7 +82,7 @@ pub fn run(server_url: &str) -> Result<()> {
                 }),
                 Internal {
                     next_action: "configure_wallet".into(),
-                    next_command: Some("if ! awp-wallet receive 2>/dev/null; then awp-wallet init; fi && export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)".into()),
+                    next_command: Some(next_cmd.into()),
                     progress: Some("0/4".into()),
                     ..Default::default()
                 },

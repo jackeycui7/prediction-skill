@@ -145,26 +145,50 @@ git clone https://github.com/awp-core/awp-wallet.git
 cd awp-wallet && npm install && npm install -g . && cd ..
 ```
 
-### Wallet init + unlock (if WALLET_NOT_CONFIGURED)
+### Wallet Setup (if WALLET_NOT_CONFIGURED)
 
-First check if a wallet already exists:
+**CRITICAL: NEVER run `awp-wallet init` if a wallet already exists.** Running init creates a NEW wallet and you will LOSE ACCESS to your existing wallet, balance, and prediction history.
+
+**Step 1 — Check if wallet exists:**
 
 ```
 awp-wallet receive
 ```
 
-- If it returns an address: wallet exists. **Do NOT run `awp-wallet init` again** — that would create a new wallet and lose access to the old one.
-- If it fails: no wallet yet. Run `awp-wallet init` to create one.
+| Output | Meaning | Next Step |
+|--------|---------|-----------|
+| Returns `{"eoaAddress": "0x..."}` | Wallet EXISTS | Skip to Step 3 (unlock) |
+| Error / "not initialized" | No wallet | Run Step 2 (init) |
 
-Then unlock and capture the session token:
+**Step 2 — Create wallet (ONLY if none exists):**
+
+```
+awp-wallet init
+```
+
+This creates a new agent wallet. Only run this once, ever.
+
+**Step 3 — Unlock wallet:**
 
 ```
 export AWP_WALLET_TOKEN=$(awp-wallet unlock --duration 86400 --scope full --raw)
 ```
 
-If the wallet already exists but the token expired, just re-run the unlock command above.
+This is the ONLY command you need to run regularly. Run it:
+- When starting a new shell session
+- When the token expires (after 24 hours)
+- When preflight reports `WALLET_NOT_CONFIGURED` or `AUTH_FAILED`
 
-**IMPORTANT:** `AWP_WALLET_TOKEN` is a shell environment variable — it is lost when you open a new shell or start a new session. If `predict-agent preflight` fails with `WALLET_NOT_CONFIGURED` or `AUTH_FAILED`, the most likely cause is that the token is not set in the current shell. Re-run the `export AWP_WALLET_TOKEN=...` command above. Do NOT run `awp-wallet init` again.
+**Common Mistakes:**
+
+| Symptom | Wrong Fix | Correct Fix |
+|---------|-----------|-------------|
+| "WALLET_NOT_CONFIGURED" | Running `awp-wallet init` | Run unlock command above |
+| "AUTH_FAILED" | Running `awp-wallet init` | Run unlock command above |
+| "token expired" | Running `awp-wallet init` | Run unlock command above |
+| New shell, commands fail | Running `awp-wallet init` | Run unlock command above |
+
+**The unlock command is idempotent.** Run it as many times as you want — it just refreshes the token. The init command is DESTRUCTIVE — it overwrites your wallet.
 
 After setting `AWP_WALLET_TOKEN`, run `predict-agent preflight` again. Preflight handles AWP network registration automatically (gasless, free).
 
