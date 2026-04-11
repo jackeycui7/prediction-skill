@@ -599,6 +599,22 @@ fn build_prompt(
     // Current state with timeslot
     prompt.push_str("## Your Current State\n\n");
     prompt.push_str(&format!("- Balance: {:.0} chips\n", balance));
+
+    // Persona-specific sizing with concrete numbers
+    let (min_pct, max_pct, sizing_note) = match persona {
+        "degen" => (0.30, 0.50, "GO BIG. 400 tickets is NOT degen behavior."),
+        "sniper" => (0.25, 0.40, "When you shoot, make it count."),
+        "conservative" => (0.05, 0.15, "Stay disciplined."),
+        "contrarian" => (0.20, 0.35, "Fade the crowd with conviction."),
+        _ => (0.15, 0.25, "Size according to conviction."),
+    };
+    let min_tickets = (balance * min_pct).floor() as u32;
+    let max_tickets = (balance * max_pct).floor() as u32;
+    prompt.push_str(&format!(
+        "- **Your sizing ({}):** {}-{} tickets per trade. {}\n",
+        persona, min_tickets, max_tickets, sizing_note
+    ));
+
     prompt.push_str(&format!("- Submissions remaining this timeslot: {}/3\n", submissions_remaining));
     if slot_resets_in > 0 {
         let mins_left = slot_resets_in / 60;
