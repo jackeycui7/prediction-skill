@@ -381,13 +381,13 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
     };
 
     // Handle skip decision
-    let (direction, reasoning, tickets, target_market) = match decision {
+    let (direction, reasoning, tickets, target_market, limit_price) = match decision {
         LlmDecision::Skip { reason } => {
             log_info!("loop: LLM chose to skip: {}", reason);
             return IterationResult::Skipped { reason };
         }
-        LlmDecision::Submit { direction, reasoning, tickets, market_id } => {
-            (direction, reasoning, tickets, market_id)
+        LlmDecision::Submit { direction, reasoning, tickets, market_id, limit_price } => {
+            (direction, reasoning, tickets, market_id, limit_price)
         }
     };
 
@@ -417,10 +417,11 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
     let final_tickets = final_tickets.max(MIN_TICKETS);
 
     log_info!(
-        "loop: submitting {} {} tickets for {}",
+        "loop: submitting {} {} tickets for {} @ {:?}",
         direction,
         final_tickets,
-        final_market
+        final_market,
+        limit_price
     );
 
     // 10. Submit prediction
@@ -430,18 +431,24 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         use sha2::{Digest, Sha256};
         hex::encode(Sha256::digest(reasoning.as_bytes()))
     };
+    let limit_price_str = limit_price
+        .map(|p| format!("{}", p))
+        .unwrap_or_else(|| "none".to_string());
     let canonical_body = format!(
-        "{}|{}|none|{}|{}",
-        final_market, direction, final_tickets, reasoning_hash
+        "{}|{}|{}|{}|{}",
+        final_market, direction, limit_price_str, final_tickets, reasoning_hash
     );
     log_debug!("loop: canonical body = {}", canonical_body);
 
-    let body = json!({
+    let mut body = json!({
         "market_id": final_market,
         "prediction": direction,
         "tickets": final_tickets,
         "reasoning": reasoning,
     });
+    if let Some(lp) = limit_price {
+        body["limit_price"] = json!(lp);
+    }
 
     match client.post_auth_with_canonical(canonical_body.as_bytes(), "/api/v1/predictions", &body) {
         Ok(resp) => {
@@ -545,6 +552,12 @@ fn build_prompt(
     prompt.push_str("- When you buy DOWN at price 0.70 (meaning implied_up=0.70), you pay 0.30 per ticket. If DOWN wins, you get 1.00 (profit 0.70). If UP wins, you lose 0.30.\n");
     prompt.push_str("- **The price IS your breakeven accuracy.** At 0.70 UP, you need >70% accuracy on UP calls to profit. If your true edge is only 60%, buying UP at 0.70 is a losing play even if UP wins this time.\n\n");
 
+    prompt.push_str("**Using limit_price to express conviction:**\n");
+    prompt.push_str("- If implied_up_prob is 0.50 and you think UP has 65% true probability, bid 0.55-0.60 for UP. You're paying less than your expected value.\n");
+    prompt.push_str("- If you think UP has 80% probability, you can bid up to 0.75 and still have edge.\n");
+    prompt.push_str("- DO NOT just bid 0.50 every time. That's leaving money on the table. Express your conviction in the price!\n");
+    prompt.push_str("- Higher bids fill faster but have lower profit margin. Lower bids have higher margin but may not fill.\n\n");
+
     prompt.push_str("**How you earn $PRED rewards:**\n");
     prompt.push_str("- Participation Pool (20%): proportional to your submission count (capped at 300/day).\n");
     prompt.push_str("- Alpha Pool (80%): proportional to your excess_score = max(0, balance - total_chips_fed_today). You earn Alpha only if you **grew** your chip balance beyond what was given.\n");
@@ -567,7 +580,8 @@ fn build_prompt(
     prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction (required if action=submit)\n");
     prompt.push_str("- \"reasoning\": your analysis (80-2000 chars, ≥2 sentences, must mention the asset or a direction word). Required if action=submit. If skipping, briefly explain why.\n");
     prompt.push_str(&format!("- \"tickets\": how many chips to commit (integer, minimum 100, max {:.0}). Size according to your persona and conviction!\n", balance));
-    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n\n", market_id));
+    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n", market_id));
+    prompt.push_str("- \"limit_price\": (optional, 0.01-0.99) the max price you're willing to pay. If you believe UP has 70% probability, bid 0.60-0.65 to get edge. Higher price = easier fill but less profit. Omit for market order.\n\n");
     prompt.push_str("**When to skip THIS round (but maybe submit later):**\n");
     prompt.push_str("- No clear directional signal yet — wait for more candles\n");
     prompt.push_str("- The price already reflects your view — no edge right now\n");
@@ -826,6 +840,7 @@ enum LlmDecision {
         reasoning: String,
         tickets: Option<u32>,
         market_id: Option<String>,
+        limit_price: Option<f64>,
     },
     Skip {
         reason: String,
@@ -882,11 +897,17 @@ fn parse_llm_response(text: &str) -> Result<LlmDecision> {
         .and_then(|m| m.as_str())
         .map(|s| s.to_string());
 
+    let limit_price = v
+        .get("limit_price")
+        .and_then(|p| p.as_f64())
+        .filter(|p| *p >= 0.01 && *p <= 0.99);
+
     Ok(LlmDecision::Submit {
         direction,
         reasoning,
         tickets,
         market_id,
+        limit_price,
     })
 }
 
