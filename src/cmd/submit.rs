@@ -52,14 +52,19 @@ pub fn run(server_url: &str, args: SubmitArgs) -> Result<()> {
         return Ok(());
     }
 
-    if args.tickets == 0 {
-        log_error!("submit: tickets must be > 0");
-        Output::error(
-            "Tickets must be greater than 0.",
-            "INVALID_TICKETS",
+    const MIN_TICKETS: u32 = 100;
+    if args.tickets < MIN_TICKETS {
+        log_error!("submit: tickets {} below minimum {}", args.tickets, MIN_TICKETS);
+        Output::error_with_debug(
+            format!("Minimum order size is {} tickets. You specified {}.", MIN_TICKETS, args.tickets),
+            "TICKETS_TOO_SMALL",
             "validation",
             false,
-            "Use --tickets N where N >= 1.",
+            format!("Use --tickets N where N >= {}. Small bets waste submission slots.", MIN_TICKETS),
+            json!({
+                "provided_tickets": args.tickets,
+                "minimum_tickets": MIN_TICKETS,
+            }),
             Internal {
                 next_action: "fix_command".into(),
                 ..Default::default()

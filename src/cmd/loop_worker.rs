@@ -401,11 +401,15 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         market_id.clone()
     };
 
+    const MIN_TICKETS: u32 = 100;
     let final_tickets = tickets.unwrap_or_else(|| {
-        // Default: ~5% of balance, minimum 1
-        let t = (balance * 0.05).floor() as u32;
-        t.max(1)
+        // Default: ~10% of balance, minimum 100
+        let t = (balance * 0.10).floor() as u32;
+        t.max(MIN_TICKETS)
     });
+
+    // Enforce minimum
+    let final_tickets = final_tickets.max(MIN_TICKETS);
 
     log_info!(
         "loop: submitting {} {} tickets for {}",
@@ -540,7 +544,7 @@ fn build_prompt(
     prompt.push_str("- \"action\": \"submit\" or \"skip\" — whether to place a prediction this round\n");
     prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction (required if action=submit)\n");
     prompt.push_str("- \"reasoning\": your analysis (80-2000 chars, ≥2 sentences, must mention the asset or a direction word). Required if action=submit. If skipping, briefly explain why.\n");
-    prompt.push_str("- \"tickets\": how many chips to commit (integer, ≥1, required if action=submit)\n");
+    prompt.push_str("- \"tickets\": how many chips to commit (integer, minimum 100, required if action=submit)\n");
     prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n\n", market_id));
     prompt.push_str("**When to skip THIS round (but maybe submit later):**\n");
     prompt.push_str("- No clear directional signal yet — wait for more candles\n");
