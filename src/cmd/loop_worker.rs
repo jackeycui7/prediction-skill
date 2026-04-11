@@ -90,6 +90,16 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                 consecutive_empty = 0;
                 consecutive_errors = 0;
             }
+            IterationResult::Skipped { reason } => {
+                log_info!(
+                    "loop: skipped this round ({:.1}s): {}",
+                    iter_start.elapsed().as_secs_f64(),
+                    reason
+                );
+                consecutive_empty = 0;
+                consecutive_errors = 0;
+                // No penalty for skipping — it's a valid decision
+            }
             IterationResult::NoMarkets { wait_seconds } => {
                 consecutive_empty += 1;
                 let backoff = calculate_backoff(args.interval, consecutive_empty, Some(wait_seconds));
@@ -145,6 +155,9 @@ enum IterationResult {
     Submitted {
         market: String,
         direction: String,
+    },
+    Skipped {
+        reason: String,
     },
     NoMarkets {
         wait_seconds: u64,
@@ -339,13 +352,24 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
     };
 
     // 9. Parse LLM response
-    let (direction, reasoning, tickets, target_market) = match parse_llm_response(&llm_text) {
+    let decision = match parse_llm_response(&llm_text) {
         Ok(parsed) => parsed,
         Err(e) => {
             log_warn!("loop: failed to parse LLM response: {}", e);
             return IterationResult::LlmFailed {
                 reason: format!("parse failed: {e}"),
             };
+        }
+    };
+
+    // Handle skip decision
+    let (direction, reasoning, tickets, target_market) = match decision {
+        LlmDecision::Skip { reason } => {
+            log_info!("loop: LLM chose to skip: {}", reason);
+            return IterationResult::Skipped { reason };
+        }
+        LlmDecision::Submit { direction, reasoning, tickets, market_id } => {
+            (direction, reasoning, tickets, market_id)
         }
     };
 
@@ -462,7 +486,14 @@ fn build_prompt(
 
     // Game rules — the agent must understand the full picture
     prompt.push_str("## Game Rules\n\n");
-    prompt.push_str("You are playing a prediction market game against other AI agents. Understanding the rules is critical to making profitable decisions.\n\n");
+    prompt.push_str("You are playing a prediction market game against other AI agents. This is a **repeated game** — you will play hundreds of rounds over days and weeks. Your goal is to **maximize your chip balance over time**, not to win any single prediction.\n\n");
+
+    prompt.push_str("**The long game:**\n");
+    prompt.push_str("- A single prediction does not matter. What matters is your cumulative P&L across all predictions.\n");
+    prompt.push_str("- Winning 6 out of 10 predictions at fair odds (0.50) makes you profitable. Winning 9 out of 10 at terrible odds (0.95) makes you break even.\n");
+    prompt.push_str("- The best agents are not the ones who predict the most, or even the most accurately — they are the ones who **size their bets according to their edge**. Big when confident, small when uncertain, zero when the odds are against them.\n");
+    prompt.push_str("- Patience is a strategy. Skipping a bad opportunity is as valuable as taking a good one.\n\n");
+
     prompt.push_str("**How markets work:**\n");
     prompt.push_str("- Each market asks: will this asset's price go UP or DOWN within a time window (15m/30m/1h)?\n");
     prompt.push_str("- You commit chips (virtual tokens) to your prediction. Winners get 1 chip per ticket. Losers get 0.\n");
@@ -472,24 +503,32 @@ fn build_prompt(
     prompt.push_str("- `implied_up_prob` is the market price, NOT a forecast. It reflects what other agents have already committed.\n");
     prompt.push_str("- When you buy UP at price 0.70, you pay 0.70 chips per ticket. If UP wins, you get 1.00 back (profit 0.30). If DOWN wins, you lose 0.70.\n");
     prompt.push_str("- When you buy DOWN at price 0.70 (meaning implied_up=0.70), you pay 0.30 per ticket. If DOWN wins, you get 1.00 (profit 0.70). If UP wins, you lose 0.30.\n");
-    prompt.push_str("- The further the price is from 0.50, the worse the odds for the popular side and the better for the contrarian.\n\n");
+    prompt.push_str("- **The price IS your breakeven accuracy.** At 0.70 UP, you need >70% accuracy on UP calls to profit. If your true edge is only 60%, buying UP at 0.70 is a losing play even if UP wins this time.\n\n");
 
     prompt.push_str("**How you earn $PRED rewards:**\n");
-    prompt.push_str("- Participation Pool (20%): proportional to your number of submissions (capped at 300/day). More submissions = more participation reward.\n");
-    prompt.push_str("- Alpha Pool (80%): proportional to your excess_score = max(0, balance - total_chips_fed_today). You earn Alpha only if you grew your chip balance beyond what was given.\n");
-    prompt.push_str("- Implication: submit often for participation rewards, but be accurate and size well for Alpha rewards. Reckless large bets that lose destroy your Alpha score.\n\n");
+    prompt.push_str("- Participation Pool (20%): proportional to your submission count (capped at 300/day).\n");
+    prompt.push_str("- Alpha Pool (80%): proportional to your excess_score = max(0, balance - total_chips_fed_today). You earn Alpha only if you **grew** your chip balance beyond what was given.\n");
+    prompt.push_str("- The Alpha Pool is where the real money is. One well-sized winning prediction can earn more Alpha than dozens of small break-even ones.\n\n");
 
     prompt.push_str("**Constraints:**\n");
-    prompt.push_str("- 3 submissions per 15-minute timeslot. Use all 3 for participation, but pick the best opportunities.\n");
-    prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n\n");
+    prompt.push_str("- 3 submissions per 15-minute timeslot.\n");
+    prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n");
+    prompt.push_str("- You can also choose to **skip** this round entirely if no market offers a good opportunity.\n\n");
 
     // Response format
     prompt.push_str("## Your Response\n\n");
     prompt.push_str("Output a JSON object with these fields:\n");
-    prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction\n");
-    prompt.push_str("- \"reasoning\": your analysis (80-2000 chars, ≥2 sentences, must mention the asset or a direction word like up/down/bullish/bearish). Must be original every time.\n");
-    prompt.push_str("- \"tickets\": how many chips to commit (integer, ≥1)\n");
-    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\")\n\n", market_id));
+    prompt.push_str("- \"action\": \"submit\" or \"skip\" — whether to place a prediction this round\n");
+    prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction (required if action=submit)\n");
+    prompt.push_str("- \"reasoning\": your analysis (80-2000 chars, ≥2 sentences, must mention the asset or a direction word). Required if action=submit. If skipping, briefly explain why.\n");
+    prompt.push_str("- \"tickets\": how many chips to commit (integer, ≥1, required if action=submit)\n");
+    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n\n", market_id));
+    prompt.push_str("**When to skip:**\n");
+    prompt.push_str("- No clear directional signal in the data\n");
+    prompt.push_str("- The price (implied_up_prob) already reflects your view — no edge\n");
+    prompt.push_str("- You just lost and need to re-evaluate your thesis before committing more\n");
+    prompt.push_str("- All markets are closing soon (<60s) — not enough time for thesis to play out\n\n");
+    prompt.push_str("Skipping is not failure. Skipping a bad trade is the same as winning a good one — both grow your long-term edge.\n\n");
     prompt.push_str("Output ONLY the JSON. No markdown fences, no text outside the JSON.\n\n");
 
     // Current state with timeslot
@@ -714,7 +753,20 @@ fn call_openclaw(openclaw_bin: &str, agent_id: &str, prompt: &str) -> Result<Str
     Ok(stdout)
 }
 
-fn parse_llm_response(text: &str) -> Result<(String, String, Option<u32>, Option<String>)> {
+/// Parsed LLM response — either a submission or a skip
+enum LlmDecision {
+    Submit {
+        direction: String,
+        reasoning: String,
+        tickets: Option<u32>,
+        market_id: Option<String>,
+    },
+    Skip {
+        reason: String,
+    },
+}
+
+fn parse_llm_response(text: &str) -> Result<LlmDecision> {
     // Try to extract JSON from the response
     // LLMs sometimes wrap JSON in markdown fences or add text around it
     let json_str = extract_json(text)
@@ -723,6 +775,23 @@ fn parse_llm_response(text: &str) -> Result<(String, String, Option<u32>, Option
     let v: Value = serde_json::from_str(&json_str)
         .context(format!("invalid JSON from LLM: {}", truncate_str(&json_str, 200)))?;
 
+    // Check for skip action
+    let action = v
+        .get("action")
+        .and_then(|a| a.as_str())
+        .map(|s| s.to_lowercase())
+        .unwrap_or_else(|| "submit".to_string()); // default to submit for backwards compat
+
+    if action == "skip" {
+        let reason = v
+            .get("reasoning")
+            .and_then(|r| r.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "No reason provided".to_string());
+        return Ok(LlmDecision::Skip { reason });
+    }
+
+    // Parse submit action
     let direction = v
         .get("direction")
         .and_then(|d| d.as_str())
@@ -747,7 +816,12 @@ fn parse_llm_response(text: &str) -> Result<(String, String, Option<u32>, Option
         .and_then(|m| m.as_str())
         .map(|s| s.to_string());
 
-    Ok((direction, reasoning, tickets, market_id))
+    Ok(LlmDecision::Submit {
+        direction,
+        reasoning,
+        tickets,
+        market_id,
+    })
 }
 
 /// Extract JSON object from text that may contain markdown fences or surrounding text.
