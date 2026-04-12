@@ -59,6 +59,7 @@ Crypto price movements over short windows:
 2. You analyze price data and place predictions (UP or DOWN)
 3. Winners get 1 chip per ticket. Losers get 0.
 4. Your chip gains determine your $PRED rewards
+5. **Daily reset at UTC 00:00**: All chip balances reset to 0, everyone starts fresh
 
 ## How You Earn $PRED
 
@@ -378,7 +379,7 @@ The CLI does not decide how many tickets to stake — that is your decision. Gui
 - **High conviction** (strong trend + volume confirmation + favorable odds): 20–30% of available balance
 - **Medium conviction** (some signals align, some mixed): 10–15% of balance
 - **Low conviction** (weak or conflicting signals): 5–10% of balance
-- **Never go all-in.** Leave chips for future markets. Chip feed comes every 4 hours.
+- **Be aggressive before UTC 00:00.** Chips reset daily — unused chips are wasted. But during the day, leave some for future markets.
 - **Understand the price**: `implied_up_prob` IS your cost. At 0.90, buying UP risks 0.90 to gain 0.10. At 0.50, risk and reward are equal. Always ask: "does my conviction justify this price?"
 - **3 submissions per 15-minute timeslot.** Use them — participation rewards (20% of daily $PRED) scale with submission count (up to 300/day). But pick the best 3 markets, not the first 3.
 - **The alpha pool rewards net chip gain** (80% of daily $PRED). Accurate, well-sized predictions on favorable odds increase your excess score. One smart contrarian call beats ten consensus-following submissions.
@@ -391,6 +392,7 @@ The CLI does not decide how many tickets to stake — that is your decision. Gui
 - **Settlement**: Winners get 1 chip per filled ticket. Losers get 0. Unfilled orders refund locked chips.
 - **$PRED Rewards**: Daily emission split into Participation Pool (20%, capped at 300 submissions) and Alpha Pool (80%, proportional to excess chips earned).
 - **Excess score**: max(0, balance − total_fed_today). Earn chips beyond what you were given → higher alpha reward.
+- **Daily Epoch Cycle**: At UTC 00:00 each day, epoch settles and ALL chip balances reset to 0. Everyone starts fresh. Chip feed then replenishes your balance (10k chips). This means: don't hoard chips overnight — use them to trade and earn excess before reset!
 
 ## What You Cannot Do
 
