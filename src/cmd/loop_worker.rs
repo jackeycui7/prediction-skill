@@ -101,10 +101,23 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
         let iter_start = Instant::now();
 
         match run_iteration(server_url, &openclaw_bin, &args.agent_id) {
-            IterationResult::Submitted { market, direction } => {
+            IterationResult::Submitted { market, direction, tickets, tickets_filled, order_status } => {
                 let elapsed = iter_start.elapsed().as_secs_f64();
-                log_info!("loop: submitted {} for {} ({:.1}s)", direction, market, elapsed);
-                notify!(args.notify, "Round {}: Submitted {} for {} ({:.1}s)", iteration, direction.to_uppercase(), market, elapsed);
+                let fill_info = match order_status.as_str() {
+                    "filled" => format!("FILLED {}/{}", tickets_filled, tickets),
+                    "partial" => format!("PARTIAL {}/{}", tickets_filled, tickets),
+                    _ => format!("PENDING 0/{} (waiting for counterparty)", tickets),
+                };
+                log_info!("loop: {} {} for {} — {} ({:.1}s)", direction, fill_info, market, order_status, elapsed);
+                notify!(
+                    args.notify,
+                    "Round {}: {} {} — {} ({:.1}s)",
+                    iteration,
+                    direction.to_uppercase(),
+                    market,
+                    fill_info,
+                    elapsed
+                );
                 consecutive_empty = 0;
                 consecutive_errors = 0;
             }
@@ -175,6 +188,9 @@ enum IterationResult {
     Submitted {
         market: String,
         direction: String,
+        tickets: u32,
+        tickets_filled: u32,
+        order_status: String,  // "filled", "partial", "open"
     },
     Skipped {
         reason: String,
@@ -487,15 +503,27 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
 
     match client.post_auth_with_canonical(canonical_body.as_bytes(), "/api/v1/predictions", &body) {
         Ok(resp) => {
-            let status = resp
-                .get("data")
-                .and_then(|d| d.get("order_status"))
+            let data = resp.get("data").cloned().unwrap_or(json!({}));
+            let order_status = data
+                .get("order_status")
                 .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            log_info!("loop: submission accepted (order_status={})", status);
+                .unwrap_or("open")
+                .to_string();
+            let tickets_filled = data
+                .get("tickets_filled")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+
+            log_info!(
+                "loop: submission result — status={}, filled={}/{}",
+                order_status, tickets_filled, final_tickets
+            );
             IterationResult::Submitted {
                 market: final_market,
                 direction,
+                tickets: final_tickets,
+                tickets_filled,
+                order_status,
             }
         }
         Err(e) => {
@@ -692,25 +720,50 @@ fn build_prompt(
     }
     prompt.push_str(&format!("- Available markets: {}\n", all_markets.len()));
 
-    // Open positions with anti-contradiction warning
+    // Open positions with fill status and anti-contradiction warning
     if let Some(orders) = open_orders {
         if !orders.is_empty() {
-            prompt.push_str(&format!("\n**Your open positions ({}):**\n", orders.len()));
+            // Calculate fill statistics
+            let mut total_tickets: i64 = 0;
+            let mut total_filled: i64 = 0;
+            for o in orders.iter() {
+                total_tickets += o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0);
+                total_filled += o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
+            }
+            let fill_rate = if total_tickets > 0 { (total_filled as f64 / total_tickets as f64 * 100.0) as i64 } else { 0 };
+
+            prompt.push_str(&format!(
+                "\n**Your open orders ({}, fill rate: {}%)**\n",
+                orders.len(),
+                fill_rate
+            ));
             for o in orders.iter().take(10) {
+                let tickets = o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0);
+                let filled = o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
+                let status = if filled == tickets {
+                    "FILLED"
+                } else if filled > 0 {
+                    "PARTIAL"
+                } else {
+                    "PENDING"
+                };
                 prompt.push_str(&format!(
-                    "- {} {} {} — {} tickets (filled {}), closes {}\n",
+                    "- {} {} {} — {} {}/{} tickets, closes {}\n",
                     o.get("asset").and_then(|v| v.as_str()).unwrap_or("?"),
                     o.get("window").and_then(|v| v.as_str()).unwrap_or("?"),
                     o.get("direction").and_then(|v| v.as_str()).unwrap_or("?").to_uppercase(),
-                    o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0),
-                    o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0),
+                    status,
+                    filled,
+                    tickets,
                     o.get("close_at").and_then(|v| v.as_str()).unwrap_or("?"),
                 ));
             }
-            prompt.push_str("\n**CRITICAL: Do NOT bet against your open positions.**\n");
-            prompt.push_str("If you have an open UP position, do NOT submit DOWN on the same market (and vice versa).\n");
-            prompt.push_str("Options: (1) add to your existing position, (2) bet on a DIFFERENT market, or (3) skip this round.\n");
-            prompt.push_str("Betting both directions on the same market guarantees a loss.\n\n");
+            prompt.push_str("\n**Understanding fill status:**\n");
+            prompt.push_str("- FILLED: Your chips are matched. You have real exposure and will win/lose at settlement.\n");
+            prompt.push_str("- PARTIAL: Some matched, rest waiting. Unmatched portion refunds at market close.\n");
+            prompt.push_str("- PENDING: No matches yet. Chips are locked but you have no actual exposure until matched.\n\n");
+            prompt.push_str("**CRITICAL: Do NOT bet against your open positions.**\n");
+            prompt.push_str("Betting both UP and DOWN on the same market guarantees a loss.\n\n");
         }
     }
 
