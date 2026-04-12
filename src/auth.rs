@@ -370,3 +370,51 @@ fn which(binary: &str) -> Result<PathBuf> {
     }
     bail!("{binary} not found in PATH")
 }
+
+/// Attempt to refresh the wallet token by calling `awp-wallet unlock`.
+/// Returns the new token on success, or an error if refresh fails.
+pub fn refresh_wallet_token() -> Result<String> {
+    log_info!("Attempting to refresh wallet token...");
+
+    let wallet_bin = find_awp_wallet()?;
+
+    // Build args for unlock
+    let mut args = vec![
+        "unlock",
+        "--duration", "86400",
+        "--scope", "full",
+        "--raw",
+    ];
+
+    // Pass agent ID if set
+    let agent_id = std::env::var("AWP_AGENT_ID").unwrap_or_default();
+    if !agent_id.is_empty() {
+        args.push("--agent");
+        args.push(&agent_id);
+    }
+
+    log_debug!("Calling: {} {}", wallet_bin.display(), args.join(" "));
+
+    let output = std::process::Command::new(&wallet_bin)
+        .args(&args)
+        .output()
+        .context("Failed to execute awp-wallet unlock")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log_error!("awp-wallet unlock failed: {}", stderr.trim());
+        bail!("Failed to refresh wallet token: {}", stderr.trim());
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if token.is_empty() {
+        bail!("awp-wallet unlock returned empty token");
+    }
+
+    // Update environment variable
+    std::env::set_var("AWP_WALLET_TOKEN", &token);
+    log_info!("Wallet token refreshed successfully (length={})", token.len());
+
+    Ok(token)
+}

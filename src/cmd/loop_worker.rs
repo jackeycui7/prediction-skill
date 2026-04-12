@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::auth::refresh_wallet_token;
 use crate::client::ApiClient;
 use crate::{log_debug, log_error, log_info, log_warn};
 
@@ -197,11 +198,38 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
     };
 
     // 2. Fetch agent status (includes timeslot, open_orders, recent_results)
+    // Auto-refresh wallet token on auth failure
     let status = match client.get_auth("/api/v1/agents/me/status") {
         Ok(v) => v,
         Err(e) => {
-            return IterationResult::Error {
-                reason: format!("status fetch failed: {e}"),
+            let err_str = e.to_string();
+            // Check if this is an auth error that might be fixed by refreshing token
+            if err_str.contains("AUTH_FAILED") || err_str.contains("expired") || err_str.contains("invalid token") {
+                log_warn!("loop: auth failed, attempting token refresh...");
+                match refresh_wallet_token() {
+                    Ok(_) => {
+                        log_info!("loop: token refreshed, retrying status fetch...");
+                        // Recreate client with new token and retry
+                        let new_client = match ApiClient::new(server_url.to_string()) {
+                            Ok(c) => c,
+                            Err(e) => return IterationResult::Error { reason: format!("client reinit failed: {e}") },
+                        };
+                        match new_client.get_auth("/api/v1/agents/me/status") {
+                            Ok(v) => v,
+                            Err(e) => return IterationResult::Error { reason: format!("status fetch failed after refresh: {e}") },
+                        }
+                    }
+                    Err(refresh_err) => {
+                        log_error!("loop: token refresh failed: {}", refresh_err);
+                        return IterationResult::Error {
+                            reason: format!("auth failed and token refresh failed: {e} / {refresh_err}"),
+                        }
+                    }
+                }
+            } else {
+                return IterationResult::Error {
+                    reason: format!("status fetch failed: {e}"),
+                }
             }
         }
     };
