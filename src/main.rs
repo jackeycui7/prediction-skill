@@ -108,6 +108,28 @@ enum Commands {
         persona: String,
     },
 
+    /// List your orders (open, filled, cancelled)
+    Orders {
+        /// Filter by market ID
+        #[arg(long)]
+        market: Option<String>,
+
+        /// Filter by status: open, filled, cancelled, or all
+        #[arg(long, default_value = "all")]
+        status: String,
+
+        /// Number of orders to show
+        #[arg(long, default_value = "20")]
+        limit: u32,
+    },
+
+    /// Cancel an open order
+    Cancel {
+        /// Order ID to cancel
+        #[arg(long)]
+        order: i64,
+    },
+
     /// Run continuous prediction loop (background worker)
     Loop {
         /// Seconds between prediction rounds
@@ -158,6 +180,8 @@ fn main() -> Result<()> {
         Commands::Result { market } => cmd::result::run(server, &market)?,
         Commands::History { limit } => cmd::history::run(server, limit)?,
         Commands::SetPersona { persona } => cmd::set_persona::run(server, &persona)?,
+        Commands::Orders { market, status, limit } => cmd::orders::run(server, market, &status, limit)?,
+        Commands::Cancel { order } => cmd::cancel::run(server, order)?,
         Commands::Loop {
             interval,
             max_iterations,

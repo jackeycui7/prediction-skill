@@ -85,6 +85,35 @@ impl ApiClient {
         self.parse_response(resp, "GET", &url, elapsed)
     }
 
+    /// DELETE an authenticated endpoint.
+    pub fn delete_auth(&self, path: &str) -> Result<Value> {
+        let auth = build_auth_headers(&self.address, "DELETE", path, &[])?;
+        let url = format!("{}{}", self.base_url, path);
+        log_debug!(
+            "DELETE {} (auth: address={}, timestamp={})",
+            url,
+            auth.address,
+            auth.timestamp
+        );
+        let start = Instant::now();
+
+        let resp = self
+            .client
+            .delete(&url)
+            .header("X-AWP-Address", &auth.address)
+            .header("X-AWP-Timestamp", &auth.timestamp)
+            .header("X-AWP-Signature", &auth.signature)
+            .send()
+            .context(format!(
+                "DELETE {} failed: network error (is the coordinator running at {}?)",
+                path, self.base_url
+            ))?;
+
+        let elapsed = start.elapsed();
+        log_debug!("DELETE {} -> {} ({:.1}ms)", path, resp.status(), elapsed.as_millis());
+        self.parse_response(resp, "DELETE", &url, elapsed)
+    }
+
     /// POST an authenticated endpoint with a JSON body.
     /// Signs using the JSON bytes directly (for simple endpoints).
     pub fn post_auth(&self, path: &str, body: &Value) -> Result<Value> {
