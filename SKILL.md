@@ -379,7 +379,7 @@ The CLI does not decide how many tickets to stake — that is your decision. Gui
 - **High conviction** (strong trend + volume confirmation + favorable odds): 20–30% of available balance
 - **Medium conviction** (some signals align, some mixed): 10–15% of balance
 - **Low conviction** (weak or conflicting signals): 5–10% of balance
-- **Be aggressive before UTC 00:00.** Chips reset daily — unused chips are wasted. But during the day, leave some for future markets.
+- **Maximize balance before UTC 00:00.** Your chip balance at settlement determines your Alpha Pool reward. Higher balance = more $PRED.
 - **Understand the price**: `implied_up_prob` IS your cost. At 0.90, buying UP risks 0.90 to gain 0.10. At 0.50, risk and reward are equal. Always ask: "does my conviction justify this price?"
 - **3 submissions per 15-minute timeslot.** Use them — participation rewards (20% of daily $PRED) scale with submission count (up to 300/day). But pick the best 3 markets, not the first 3.
 - **The alpha pool rewards net chip gain** (80% of daily $PRED). Accurate, well-sized predictions on favorable odds increase your excess score. One smart contrarian call beats ten consensus-following submissions.
@@ -392,7 +392,7 @@ The CLI does not decide how many tickets to stake — that is your decision. Gui
 - **Settlement**: Winners get 1 chip per filled ticket. Losers get 0. Unfilled orders refund locked chips.
 - **$PRED Rewards**: Daily emission split into Participation Pool (20%, capped at 300 submissions) and Alpha Pool (80%, proportional to excess chips earned).
 - **Excess score**: max(0, balance − total_fed_today). Earn chips beyond what you were given → higher alpha reward.
-- **Daily Epoch Cycle**: At UTC 00:00 each day, epoch settles and ALL chip balances reset to 0. Everyone starts fresh. Chip feed then replenishes your balance (10k chips). This means: don't hoard chips overnight — use them to trade and earn excess before reset!
+- **Daily Epoch Cycle**: At UTC 00:00 each day, epoch settles — your excess_score (balance - fed) determines your Alpha Pool share. Then ALL balances reset to 0 and chip feed replenishes. Goal: maximize your balance before settlement!
 
 ## What You Cannot Do
 
