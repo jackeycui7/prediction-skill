@@ -1,15 +1,22 @@
 /// loop_worker — background prediction loop.
 ///
 /// Runs continuously: fetch context → call LLM for analysis → submit prediction → sleep.
-/// LLM is invoked via OpenClaw CLI (`openclaw agent --agent <id> --message <prompt>`),
-/// matching the pattern used by benchmark-skill and mine-skill.
+///
+/// LLM is invoked via OpenClaw CLI with extended thinking:
+///   `openclaw agent --agent <id> --message <prompt> --thinking high --timeout 180`
+///
+/// With --thinking high, the agent can:
+///   - Do deeper reasoning before making predictions
+///   - Use web search to check news, sentiment, market data (if configured)
+///   - Use any tools available in the agent's gateway configuration
+///   - Output a final `DECISION: {...}` with its prediction
 ///
 /// Usage: predict-agent loop [--interval 120] [--max-iterations 0] [--agent-id predict-worker]
 ///
 /// The loop handles:
 ///   - Automatic context fetching each round
 ///   - LLM prompt construction with klines data
-///   - Parsing LLM response (direction + reasoning)
+///   - Parsing LLM response (extracts DECISION: JSON from output)
 ///   - Submission with error recovery
 ///   - Adaptive backoff on empty markets or errors
 ///   - Graceful shutdown on SIGINT/SIGTERM
@@ -617,8 +624,25 @@ fn build_prompt(
     prompt.push_str("- All markets closing in <60 seconds (no time to fill)\n");
     prompt.push_str("- You already used all 3 submissions this timeslot\n\n");
     prompt.push_str("If you have submissions remaining, FIND A TRADE. Pick the best market and submit.\n\n");
-    prompt.push_str("Output ONLY the JSON. No markdown fences, no text outside the JSON.\n");
-    prompt.push_str("**All text must be in English.** Reasoning, skip explanations, everything — English only.\n\n");
+    prompt.push_str("## Research (Optional)\n\n");
+    prompt.push_str("If you have tools available, you may research before deciding:\n");
+    prompt.push_str("- Search for recent news about the asset\n");
+    prompt.push_str("- Check market sentiment\n");
+    prompt.push_str("- Look up relevant data\n\n");
+    prompt.push_str("Better analysis = better decisions. Take time if it helps.\n\n");
+    prompt.push_str("## Final Output\n\n");
+    prompt.push_str("Output your decision on a line starting with `DECISION:` followed by a JSON object:\n\n");
+    prompt.push_str("```\n");
+    prompt.push_str("DECISION: {\"action\": \"submit\", \"direction\": \"up\", \"tickets\": 3000, \"market_id\": \"...\", \"limit_price\": 0.55, \"reasoning\": \"...\"}\n");
+    prompt.push_str("```\n\n");
+    prompt.push_str("Required fields:\n");
+    prompt.push_str("- \"action\": \"submit\" or \"skip\"\n");
+    prompt.push_str("- \"direction\": \"up\" or \"down\" (if submitting)\n");
+    prompt.push_str("- \"reasoning\": 80-2000 chars, ≥2 sentences, must mention the asset or a direction word\n");
+    prompt.push_str(&format!("- \"tickets\": integer, minimum 100, max {:.0}\n", balance));
+    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\")\n", market_id));
+    prompt.push_str("- \"limit_price\": (optional, 0.01-0.99) your bid price\n\n");
+    prompt.push_str("**All text must be in English.**\n\n");
 
     // Current state with timeslot
     prompt.push_str("## Your Current State\n\n");
@@ -861,8 +885,17 @@ fn call_openclaw(openclaw_bin: &str, agent_id: &str, prompt: &str) -> Result<Str
     // Read prompt from file and pipe to openclaw
     let prompt_content = std::fs::read_to_string(&tmp_path)?;
 
+    // Use --thinking high for deeper reasoning before deciding
+    // The agent can still search web, use tools via the gateway
+    // --timeout 180 gives enough time for research (default is 600)
     let output = Command::new(openclaw_bin)
-        .args(["agent", "--agent", agent_id, "--message", &prompt_content])
+        .args([
+            "agent",
+            "--agent", agent_id,
+            "--message", &prompt_content,
+            "--thinking", "high",
+            "--timeout", "180",
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
@@ -967,17 +1000,52 @@ fn parse_llm_response(text: &str) -> Result<LlmDecision> {
 }
 
 /// Extract JSON object from text that may contain markdown fences or surrounding text.
+/// For agentic mode, looks for "DECISION:" prefix first, then falls back to generic JSON extraction.
 fn extract_json(text: &str) -> Option<String> {
     let trimmed = text.trim();
 
-    // Try parsing the whole thing first
+    // Priority 1: Look for "DECISION:" prefix (agentic mode output)
+    // This handles cases where the agent does research/thinking before outputting the decision
+    for prefix in &["DECISION:", "DECISION :", "decision:", "Decision:"] {
+        if let Some(pos) = trimmed.find(prefix) {
+            let after_prefix = &trimmed[pos + prefix.len()..];
+            // Find the JSON object after DECISION:
+            if let Some(json_start) = after_prefix.find('{') {
+                let json_part = &after_prefix[json_start..];
+                // Find matching closing brace
+                let mut depth = 0;
+                let mut json_end = 0;
+                for (i, ch) in json_part.chars().enumerate() {
+                    match ch {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                json_end = i + 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if json_end > 0 {
+                    let candidate = &json_part[..json_end];
+                    if serde_json::from_str::<Value>(candidate).is_ok() {
+                        return Some(candidate.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Priority 2: Try parsing the whole thing first
     if trimmed.starts_with('{') {
         if serde_json::from_str::<Value>(trimmed).is_ok() {
             return Some(trimmed.to_string());
         }
     }
 
-    // Try to find JSON inside markdown code fences
+    // Priority 3: Try to find JSON inside markdown code fences
     if let Some(start) = trimmed.find("```json") {
         let after = &trimmed[start + 7..];
         if let Some(end) = after.find("```") {
@@ -999,7 +1067,35 @@ fn extract_json(text: &str) -> Option<String> {
         }
     }
 
-    // Find first { and last } and try parsing
+    // Priority 4: Find last JSON object (more likely to be the decision in agentic output)
+    // Search from the end of the text
+    if let Some(last_close) = trimmed.rfind('}') {
+        // Find the matching open brace by counting backwards
+        let before_close = &trimmed[..=last_close];
+        let mut depth = 0;
+        let mut json_start = None;
+        for (i, ch) in before_close.chars().rev().enumerate() {
+            match ch {
+                '}' => depth += 1,
+                '{' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        json_start = Some(before_close.len() - 1 - i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(start) = json_start {
+            let candidate = &trimmed[start..=last_close];
+            if serde_json::from_str::<Value>(candidate).is_ok() {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    // Fallback: Find first { and last } and try parsing
     let start = trimmed.find('{')?;
     let end = trimmed.rfind('}')?;
     if end > start {
