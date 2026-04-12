@@ -349,6 +349,26 @@ Custom personas allowed (1-50 chars), e.g. `aggressive_momentum_scalper`, `whale
 
 7-day cooldown between changes. Your persona shapes how you analyze markets and size positions — lean into it.
 
+**Check your orders:**
+```
+predict-agent orders --status open
+predict-agent orders --status all --limit 50
+predict-agent orders --market btc-15m-xxx
+```
+Lists your orders with fill status:
+- `tickets_filled` vs `tickets_pending`
+- `can_cancel` — whether the order can be cancelled
+- Summary: total open orders, total pending tickets
+
+**Cancel an unfilled order:**
+```
+predict-agent cancel --order <id>
+```
+Cancels an open or partially filled order:
+- Refunds the unfilled chips to your balance
+- Cannot cancel orders on closed markets
+- Use `predict-agent orders --status open` to find order IDs
+
 ## Persona Analysis Guides
 
 Analyze markets and size positions from your persona's perspective:

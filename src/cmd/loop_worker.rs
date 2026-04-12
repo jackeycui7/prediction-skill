@@ -808,10 +808,38 @@ fn build_prompt(
             prompt.push_str(&format!("- Liquidity favors: {} (counterparty orders waiting)\n", suggested.to_uppercase()));
         }
     }
-    // Orderbook detail
+    // Orderbook detail with best prices
     if let Some(ob) = recommended.get("orderbook") {
+        // Best prices and spread
+        let best_up = ob.get("best_up_price").and_then(|v| v.as_str());
+        let best_down = ob.get("best_down_price").and_then(|v| v.as_str());
+        let spread = ob.get("spread").and_then(|v| v.as_f64());
+
+        if best_up.is_some() || best_down.is_some() {
+            prompt.push_str("- **Best prices available:**\n");
+            if let Some(up_price) = best_up {
+                prompt.push_str(&format!("  - Buy UP: {} (bid at this price to get filled)\n", up_price));
+            } else {
+                prompt.push_str("  - Buy UP: no orders (your order will wait for counterparty)\n");
+            }
+            if let Some(down_price) = best_down {
+                prompt.push_str(&format!("  - Buy DOWN: {} (bid at this price to get filled)\n", down_price));
+            } else {
+                prompt.push_str("  - Buy DOWN: no orders (your order will wait for counterparty)\n");
+            }
+            if let Some(s) = spread {
+                if s > 0.1 {
+                    prompt.push_str(&format!("  - Spread: {:.2} (WIDE — consider placing limit orders)\n", s));
+                } else if s > 0.05 {
+                    prompt.push_str(&format!("  - Spread: {:.2} (moderate)\n", s));
+                } else {
+                    prompt.push_str(&format!("  - Spread: {:.2} (tight — good liquidity)\n", s));
+                }
+            }
+        }
+
         prompt.push_str(&format!(
-            "- Orderbook: UP filled={} open={}, DOWN filled={} open={}\n",
+            "- Volume: UP filled={} open={}, DOWN filled={} open={}\n",
             ob.get("up_filled").and_then(|v| v.as_i64()).unwrap_or(0),
             ob.get("up_open").and_then(|v| v.as_i64()).unwrap_or(0),
             ob.get("down_filled").and_then(|v| v.as_i64()).unwrap_or(0),
