@@ -500,6 +500,13 @@ fn build_prompt(
         .unwrap_or(0.5);
     let closes_in = recommended.get("seconds_to_close")
         .and_then(|v| v.as_i64())
+        .or_else(|| {
+            // Fallback: calculate from close_at if seconds_to_close not present
+            recommended.get("close_at")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok())
+                .map(|c| (c - chrono::Utc::now()).num_seconds().max(0))
+        })
         .unwrap_or(0);
 
     let mut prompt = String::with_capacity(6000);
