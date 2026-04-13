@@ -13,6 +13,17 @@ use std::time::Instant;
 use crate::auth::{build_auth_headers, get_address};
 use crate::{log_debug, log_error, log_warn};
 
+/// Safely truncate a string to a maximum number of characters (not bytes).
+/// This avoids panics when slicing multi-byte UTF-8 characters like → or emoji.
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        format!("{}...(truncated)", s.chars().take(max_chars).collect::<String>())
+    }
+}
+
 pub struct ApiClient {
     pub base_url: String,
     pub address: String,
@@ -178,11 +189,7 @@ impl ApiClient {
             method,
             url,
             body_text.len(),
-            if body_text.len() > 2000 {
-                format!("{}...(truncated)", &body_text[..2000])
-            } else {
-                body_text.clone()
-            }
+truncate_str(&body_text, 2000)
         );
 
         let body: Value = serde_json::from_str(&body_text).context(format!(
@@ -190,11 +197,7 @@ impl ApiClient {
             method,
             url,
             status,
-            if body_text.len() > 500 {
-                format!("{}...(truncated)", &body_text[..500])
-            } else {
-                body_text.clone()
-            }
+truncate_str(&body_text, 500)
         ))?;
 
         if status == StatusCode::OK || status == StatusCode::CREATED {
@@ -259,11 +262,7 @@ pub fn check_server(base_url: &str) -> Result<()> {
             "Coordinator returned HTTP {} ({}). Response: {}",
             status,
             url,
-            if body.len() > 500 {
-                format!("{}...(truncated)", &body[..500])
-            } else {
-                body
-            }
+truncate_str(&body, 500)
         )
     }
 }

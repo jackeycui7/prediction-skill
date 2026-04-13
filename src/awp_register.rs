@@ -14,6 +14,16 @@ use std::time::Duration;
 use crate::auth::find_awp_wallet;
 use crate::{log_debug, log_error, log_info, log_warn};
 
+/// Safely truncate a string to a maximum number of characters (not bytes).
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        format!("{}...(truncated)", s.chars().take(max_chars).collect::<String>())
+    }
+}
+
 const AWP_API_BASE: &str = "https://api.awp.sh/v2";
 const AWP_RELAY_BASE: &str = "https://api.awp.sh/api";
 const CHAIN_ID: u64 = 8453; // Base mainnet
@@ -278,11 +288,7 @@ fn awp_jsonrpc(client: &Client, method: &str, params: Value) -> Result<Value> {
         "AWP API {} returned invalid JSON (HTTP {}): {}",
         method,
         status,
-        if resp_text.len() > 500 {
-            format!("{}...(truncated)", &resp_text[..500])
-        } else {
-            resp_text.clone()
-        }
+        truncate_str(&resp_text, 500)
     ))?;
 
     if let Some(err) = result.get("error") {
